@@ -1,0 +1,18 @@
+[
+  {
+    "type": "income",
+    "amount": 40000,
+    "date": "2025-08-31T07:53:11.260Z",
+    "reason": "2month",
+    "category": "Salary",
+    "id": "7831bd3c-8b90-418c-a04d-6e5a815a5790"
+  },
+  {
+    "type": "expense",
+    "amount": 2000,
+    "date": "2025-08-31T07:53:11.260Z",
+    "reason": "rajab la",
+    "category": "Education",
+    "id": "5001f902-524d-4c09-b217-bbcd78313d00"
+  }
+]
