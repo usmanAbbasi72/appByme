@@ -8,7 +8,7 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { Header } from '@/components/Header';
 import { TransactionList } from '@/components/TransactionList';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Wifi, WifiOff, IndianRupee } from 'lucide-react';
+import { Wifi, WifiOff, IndianRupee, Wallet } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TransactionForm } from '@/components/TransactionForm';
@@ -132,39 +132,38 @@ export default function Home() {
     window.addEventListener('online', updateOnlineStatus);
     window.addEventListener('offline', updateOnlineStatus);
 
-    setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true);
-
     const initialLoad = async () => {
-        setIsLoading(false);
-        if (navigator.onLine) {
-            await processSyncQueue();
-            try {
-                const res = await fetch('/api/transactions');
-                if (!res.ok) throw new Error('Server fetch failed');
-                const serverTransactions: Transaction[] = await res.json();
-                
-                const localOnly = transactions.filter(local => !serverTransactions.some(server => server.id === local.id));
-                const updatedTransactions = [...serverTransactions, ...localOnly];
-                setTransactions(updatedTransactions);
-                
-            } catch (e) {
-                console.warn('Could not fetch from server on initial load, using local data.', e);
-                toast({ title: "Offline", description: "Could not connect to the server. Using local data."});
-            }
+      setIsOnline(navigator.onLine);
+      if (navigator.onLine) {
+        await processSyncQueue(); // Process any pending changes first
+        try {
+          const res = await fetch('/api/transactions');
+          if (!res.ok) throw new Error('Server fetch failed');
+          const serverTransactions: Transaction[] = await res.json();
+          // A simple merge: server version replaces local version if IDs match.
+          // This could be more sophisticated (e.g., last-write-wins based on a timestamp).
+          const localTransactionMap = new Map(transactions.map(t => [t.id, t]));
+          serverTransactions.forEach(t => localTransactionMap.set(t.id, t));
+          setTransactions(Array.from(localTransactionMap.values()));
+        } catch (e) {
+          console.warn('Could not fetch from server on initial load, using local data.', e);
+          toast({ title: 'Offline', description: 'Could not connect to the server. Using local data.' });
         }
+      }
+      setIsLoading(false);
     };
-    
-    if (user) {
-        initialLoad();
-    }
 
+    if (user) {
+      initialLoad();
+    } else {
+        setIsLoading(false);
+    }
 
     return () => {
       window.removeEventListener('online', updateOnlineStatus);
       window.removeEventListener('offline', updateOnlineStatus);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user, processSyncQueue, setTransactions, toast, transactions]);
 
   const handleAddTransaction = () => {
     setEditingTransaction(null);
@@ -248,9 +247,9 @@ export default function Home() {
   }, [transactions]);
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
+    return new Intl.NumberFormat('en-PK', {
       style: 'currency',
-      currency: 'INR',
+      currency: 'PKR',
     }).format(amount);
   };
   
@@ -262,10 +261,10 @@ export default function Home() {
     router.push('/login');
   };
   
-  if (isLoading || !user) {
+  if (isLoading) {
      return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-background text-center p-4">
-        <IndianRupee className="h-16 w-16 text-primary mb-4 animate-pulse" />
+        <Wallet className="h-16 w-16 text-primary mb-4 animate-pulse" />
         <h1 className="text-2xl font-semibold mb-2">Loading your finances...</h1>
         <p className="text-muted-foreground">Please wait a moment.</p>
       </div>
@@ -286,7 +285,7 @@ export default function Home() {
     <>
     <div className="flex min-h-screen w-full flex-col bg-muted/40">
       <Header
-        username={user.username}
+        username={user?.username || ''}
         onLogout={handleLogout}
         accounts={accounts}
         setAccounts={setAccounts}
@@ -314,7 +313,7 @@ export default function Home() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Income</CardTitle>
-              <IndianRupee className="h-4 w-4 text-muted-foreground" />
+              <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">{formatCurrency(totalIncome)}</div>
@@ -323,7 +322,7 @@ export default function Home() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
-              <IndianRupee className="h-4 w-4 text-muted-foreground" />
+              <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-red-600">{formatCurrency(totalExpenses)}</div>
@@ -332,7 +331,7 @@ export default function Home() {
           <Card className="sm:col-span-2 lg:col-span-1">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Balance</CardTitle>
-              <IndianRupee className="h-4 w-4 text-muted-foreground" />
+              <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCurrency(balance)}</div>

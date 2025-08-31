@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { IndianRupee } from 'lucide-react';
+import { Wallet } from 'lucide-react';
 
 const formSchema = z.object({
   firstName: z.string().min(2, 'First name must be at least 2 characters.'),
@@ -90,7 +90,7 @@ export default function SignupPage() {
         <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
             <div className="flex justify-center items-center mb-4">
-                <IndianRupee className="h-8 w-8 text-primary" />
+                <Wallet className="h-8 w-8 text-primary" />
             </div>
             <CardTitle className="text-2xl">Create an Account</CardTitle>
             <CardDescription>

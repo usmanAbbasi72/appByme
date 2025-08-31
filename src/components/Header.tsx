@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { IndianRupee, Settings, PlusCircle, LogOut } from 'lucide-react';
+import { Wallet, Settings, PlusCircle, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -30,7 +30,7 @@ export function Header({ username, onLogout, accounts, setAccounts, onAddTransac
     <>
       <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background px-4 sm:px-6">
         <div className="flex items-center gap-2 font-semibold">
-          <IndianRupee className="h-6 w-6 text-primary" />
+          <Wallet className="h-6 w-6 text-primary" />
           <span className="text-lg">Osman's Personal Assistant</span>
         </div>
         <div className="ml-auto flex items-center gap-4">

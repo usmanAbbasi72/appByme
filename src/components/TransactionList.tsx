@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import type { Transaction } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,9 +20,9 @@ export function TransactionList({ transactions, onEdit, onDelete }: TransactionL
     const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
     const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('en-IN', {
+        return new Intl.NumberFormat('en-PK', {
           style: 'currency',
-          currency: 'INR',
+          currency: 'PKR',
         }).format(amount);
     };
 
@@ -114,3 +115,5 @@ export function TransactionList({ transactions, onEdit, onDelete }: TransactionL
     </>
   );
 }
+
+    
