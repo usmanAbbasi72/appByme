@@ -109,9 +109,10 @@ export default function DebtsPage() {
       const serverDebts: Debt[] = await res.json();
       setDebts(serverDebts);
       
-       if (successfullySyncedOps.length > 0) {
-          if (syncQueue.length > successfullySyncedOps.length) {
-            toast({ title: 'Sync Partially Complete', description: `${successfullySyncedOps.length} changes synced. ${syncQueue.length - successfullySyncedOps.length} remaining.` });
+      if (successfullySyncedOps.length > 0) {
+          const remainingOps = syncQueue.length - successfullySyncedOps.length;
+          if (remainingOps > 0) {
+            toast({ title: 'Sync Partially Complete', description: `${successfullySyncedOps.length} changes synced. ${remainingOps} remaining.` });
           } else {
             toast({ title: 'Sync Complete!', description: 'All debt records are saved to the cloud.' });
           }
@@ -162,7 +163,8 @@ export default function DebtsPage() {
       window.removeEventListener('online', updateOnlineStatus);
       window.removeEventListener('offline', updateOnlineStatus);
     };
-  }, [user, processSyncQueue, setDebts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const handleAddDebt = () => {
     setEditingDebt(null);
@@ -328,3 +330,5 @@ export default function DebtsPage() {
     </>
   );
 }
+
+    

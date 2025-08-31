@@ -106,8 +106,9 @@ export default function Home() {
       setTransactions(serverTransactions);
       
        if (successfullySyncedOps.length > 0) {
-          if (syncQueue.length > successfullySyncedOps.length) {
-            toast({ title: 'Sync Partially Complete', description: `${successfullySyncedOps.length} changes synced. ${syncQueue.length - successfullySyncedOps.length} remaining.` });
+          const remainingOps = syncQueue.length - successfullySyncedOps.length;
+          if (remainingOps > 0) {
+            toast({ title: 'Sync Partially Complete', description: `${successfullySyncedOps.length} changes synced. ${remainingOps} remaining.` });
           } else {
             toast({ title: 'Sync Complete!', description: 'All changes have been saved to the cloud.' });
           }
@@ -140,11 +141,7 @@ export default function Home() {
           const res = await fetch('/api/transactions');
           if (!res.ok) throw new Error('Server fetch failed');
           const serverTransactions: Transaction[] = await res.json();
-          // A simple merge: server version replaces local version if IDs match.
-          // This could be more sophisticated (e.g., last-write-wins based on a timestamp).
-          const localTransactionMap = new Map(transactions.map(t => [t.id, t]));
-          serverTransactions.forEach(t => localTransactionMap.set(t.id, t));
-          setTransactions(Array.from(localTransactionMap.values()));
+          setTransactions(serverTransactions);
         } catch (e) {
           console.warn('Could not fetch from server on initial load, using local data.', e);
           toast({ title: 'Offline', description: 'Could not connect to the server. Using local data.' });
@@ -163,7 +160,8 @@ export default function Home() {
       window.removeEventListener('online', updateOnlineStatus);
       window.removeEventListener('offline', updateOnlineStatus);
     };
-  }, [user, processSyncQueue, setTransactions, toast, transactions]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const handleAddTransaction = () => {
     setEditingTransaction(null);
