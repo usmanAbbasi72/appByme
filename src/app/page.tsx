@@ -7,27 +7,25 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { Header } from '@/components/Header';
 import { TransactionList } from '@/components/TransactionList';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, Wifi, WifiOff } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Wifi, WifiOff } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TransactionForm } from '@/components/TransactionForm';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 
-type SyncOperation = 
+type SyncOperation =
   | { type: 'add'; payload: Transaction }
   | { type: 'update'; payload: Transaction }
   | { type: 'delete'; payload: { id: string } };
-
 
 export default function Home() {
   const [transactions, setTransactions] = useLocalStorage<Transaction[]>('transactions', []);
   const [accounts, setAccounts] = useLocalStorage<Account[]>('accounts', []);
   const [syncQueue, setSyncQueue] = useLocalStorage<SyncOperation[]>('syncQueue', []);
-  
-  const [loading, setLoading] = useState(true);
-  const [isOnline, setIsOnline] = useState(true);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isOnline, setIsOnline] = useState(false); // Default to offline until checked
   const [isSyncing, setIsSyncing] = useState(false);
 
   const [isTransactionFormOpen, setIsTransactionFormOpen] = useState(false);
@@ -37,30 +35,8 @@ export default function Home() {
   const isSyncingRef = useRef(isSyncing);
   isSyncingRef.current = isSyncing;
 
-  const fetchTransactions = useCallback(async () => {
-    if (!isOnline) {
-      setLoading(false);
-      return;
-    }
-    
-    setLoading(true);
-    try {
-      const response = await fetch('/api/transactions');
-      if (!response.ok) throw new Error('Failed to fetch from remote');
-      const remoteTransactions: Transaction[] = await response.json();
-      
-      // Naive merge: remote data wins. A more robust solution would handle conflicts.
-      setTransactions(remoteTransactions);
-
-    } catch (error) {
-      console.warn("Could not fetch from remote, using local data.", error);
-      // If remote fetch fails, we just use local data.
-    } finally {
-      setLoading(false);
-    }
-  }, [isOnline, setTransactions]);
-
   const processSyncQueue = useCallback(async () => {
+    // This function should only run when online and not already syncing.
     if (!isOnline || isSyncingRef.current || syncQueue.length === 0) {
       return;
     }
@@ -69,7 +45,7 @@ export default function Home() {
     toast({ title: 'Syncing started...', description: `Processing ${syncQueue.length} offline changes.` });
 
     const queue = [...syncQueue];
-    let failedOperations: SyncOperation[] = [];
+    const failedOperations: SyncOperation[] = [];
 
     for (const op of queue) {
       try {
@@ -92,50 +68,95 @@ export default function Home() {
           });
         }
         if (!response || !response.ok) {
-          throw new Error(`Failed to sync ${op.type} operation`);
+          throw new Error(`Failed to sync ${op.type} operation for ID ${op.payload.id}`);
         }
       } catch (error) {
         console.error('Sync error:', error);
         failedOperations.push(op);
       }
     }
-
-    if (failedOperations.length > 0) {
-      setSyncQueue(failedOperations);
-      toast({ title: 'Sync Partially Failed', description: `${failedOperations.length} changes could not be synced.`, variant: 'destructive'});
-    } else {
-      setSyncQueue([]);
-      toast({ title: 'Sync Complete!', description: 'All offline changes have been saved to the cloud.' });
-    }
     
-    setIsSyncing(false);
-     // Fetch latest data after sync
-    await fetchTransactions();
+    // After attempting to sync, fetch the single source of truth from the server
+    try {
+      const response = await fetch('/api/transactions');
+      if (!response.ok) throw new Error('Failed to fetch from remote after sync');
+      const remoteTransactions: Transaction[] = await response.json();
 
-  }, [isOnline, syncQueue, setSyncQueue, toast, fetchTransactions]);
+      // The server's state is now the ground truth.
+      // We check if any failed operations are still relevant.
+      const stillRelevantFailedOps = failedOperations.filter(op => {
+         if (op.type === 'add' || op.type === 'update') {
+            // If the transaction is on the server, the op is no longer needed.
+            return !remoteTransactions.some(t => t.id === op.payload.id);
+         }
+         if (op.type === 'delete') {
+            // If the transaction is NOT on the server, the deletion was successful.
+            return remoteTransactions.some(t => t.id === op.payload.id);
+         }
+         return false;
+      });
+
+      setTransactions(remoteTransactions);
+      setSyncQueue(stillRelevantFailedOps);
+
+      if (stillRelevantFailedOps.length > 0) {
+        toast({ title: 'Sync Partially Failed', description: `${stillRelevantFailedOps.length} changes could not be synced and were kept for retry.`, variant: 'destructive' });
+      } else {
+        toast({ title: 'Sync Complete!', description: 'All offline changes have been saved to the cloud.' });
+      }
+
+    } catch (error) {
+      console.error("Critical error: Could not fetch from remote after sync.", error);
+      toast({ title: 'Sync Error', description: `Could not verify sync status with the server. Retaining failed operations.`, variant: 'destructive'});
+      setSyncQueue(failedOperations); // Keep failed ops if we can't verify
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isOnline, syncQueue, setSyncQueue, toast, setTransactions]);
+
 
   useEffect(() => {
-    // Set initial online status
-    if (typeof navigator.onLine === 'boolean') {
+    // Immediately set loading to false because we have local data to show.
+    setIsLoading(false);
+    
+    // Set initial online status and set up listeners.
+    const handleOnlineStatusChange = () => {
       setIsOnline(navigator.onLine);
+    };
+
+    if (typeof window !== 'undefined' && typeof navigator.onLine === 'boolean') {
+      handleOnlineStatusChange();
+      window.addEventListener('online', handleOnlineStatusChange);
+      window.addEventListener('offline', handleOnlineStatusChange);
     }
-    // Load local data immediately
-    setLoading(false);
 
-    // Then try to fetch remote data
-    fetchTransactions();
+    // Initial fetch from server if we are online.
+    const initialFetch = async () => {
+      if (navigator.onLine) {
+        setIsLoading(true);
+        try {
+          const response = await fetch('/api/transactions');
+          if (!response.ok) throw new Error('Failed to fetch initial data');
+          const serverTransactions: Transaction[] = await response.json();
+          // Server is the source of truth, but we must not overwrite unsynced local changes.
+          // This simple overwrite is safe because sync runs right after.
+          setTransactions(serverTransactions);
+        } catch (error) {
+          console.warn("Could not fetch from remote, using local data.", error);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    };
 
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    initialFetch();
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnlineStatusChange);
+      window.removeEventListener('offline', handleOnlineStatusChange);
     };
-  }, [fetchTransactions]);
+  }, [setTransactions]);
+
 
   useEffect(() => {
     if (isOnline) {
@@ -158,8 +179,8 @@ export default function Home() {
     setIsTransactionFormOpen(false);
     setEditingTransaction(null);
   }
-  
-  const handleTransactionDone = async (values: any) => {
+
+  const handleTransactionDone = (values: any) => {
     const isEditing = !!editingTransaction;
     
     const transactionData: Transaction = {
@@ -170,11 +191,11 @@ export default function Home() {
     };
 
     if (isEditing) {
-        setTransactions(prev => prev.map(t => t.id === transactionData.id ? transactionData : t));
-        setSyncQueue(prev => [...prev, { type: 'update', payload: transactionData }]);
+      setTransactions(prev => prev.map(t => t.id === transactionData.id ? transactionData : t));
+      setSyncQueue(prev => [...prev.filter(op => op.payload.id !== transactionData.id), { type: 'update', payload: transactionData }]);
     } else {
-        setTransactions(prev => [transactionData, ...prev]);
-        setSyncQueue(prev => [...prev, { type: 'add', payload: transactionData }]);
+      setTransactions(prev => [transactionData, ...prev]);
+      setSyncQueue(prev => [...prev, { type: 'add', payload: transactionData }]);
     }
     
     toast({
@@ -183,16 +204,24 @@ export default function Home() {
     });
     
     handleTransactionFormClose();
-    // No immediate fetch, let sync handle it.
+    // Trigger sync if online
+    if(isOnline) {
+      processSyncQueue();
+    }
   }
 
-  const handleDeleteTransaction = async (transactionId: string) => {
+  const handleDeleteTransaction = (transactionId: string) => {
       setTransactions(prev => prev.filter(t => t.id !== transactionId));
-      setSyncQueue(prev => [...prev, { type: 'delete', payload: { id: transactionId } }]);
+      // Remove any 'add' or 'update' operations for this ID from the queue before adding a 'delete'
+      setSyncQueue(prev => [...prev.filter(op => op.payload.id !== transactionId), { type: 'delete', payload: { id: transactionId } }]);
       toast({
         title: 'Transaction Deleted Locally',
         description: 'The transaction will be permanently deleted when online.',
       });
+      // Trigger sync if online
+      if(isOnline) {
+        processSyncQueue();
+      }
   }
 
   const { totalIncome, totalExpenses, balance } = useMemo(() => {
@@ -231,12 +260,14 @@ export default function Home() {
                     {isOnline ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
                     <AlertTitle className="ml-2">{isOnline ? "You're online" : "You're offline"}</AlertTitle>
                 </div>
-                 {syncQueue.length > 0 && (
-                    <Badge variant="secondary">{syncQueue.length} changes waiting to sync</Badge>
+                 {(syncQueue.length > 0 || isSyncing) && (
+                    <Badge variant="secondary">
+                      {isSyncing ? 'Syncing...' : `${syncQueue.length} changes waiting to sync`}
+                    </Badge>
                 )}
             </div>
             <AlertDescription>
-             {isOnline ? "All changes are synced with the cloud." : "Your changes are being saved locally and will sync when you're back online."}
+             {isOnline ? (isSyncing ? "Saving changes to the cloud..." : "All changes are synced with the cloud.") : "Your changes are being saved locally and will sync when you're back online."}
             </AlertDescription>
         </Alert>
 
@@ -271,7 +302,7 @@ export default function Home() {
         </div>
         <div className="grid gap-4 md:gap-8 lg:grid-cols-1">
           <div className="xl:col-span-2">
-            {loading ? (
+            {isLoading ? (
                <Card>
                   <CardHeader>
                     <CardTitle>Recent Transactions</CardTitle>
@@ -283,7 +314,7 @@ export default function Home() {
                   </CardContent>
                 </Card>
             ) : (
-              <TransactionList 
+              <TransactionList
                 transactions={transactions}
                 onEdit={handleEditTransaction}
                 onDelete={handleDeleteTransaction}
