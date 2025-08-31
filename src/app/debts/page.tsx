@@ -212,17 +212,21 @@ export default function DebtsPage() {
   }
 
   const handleDeleteDebt = (debtId: string) => {
-      setDebts(prev => prev.filter(d => d.id !== debtId));
+      setDebts(prevDebts => prevDebts.filter(d => d.id !== debtId));
       
-      setSyncQueue(prev => {
-        const filteredForDelete = prev.filter(op => !('payload' in op && op.payload && 'id' in op.payload && op.payload.id === debtId));
-        return [...filteredForDelete, { type: 'delete', payload: { id: debtId } }];
+      setSyncQueue(prevQueue => {
+        const queueWithoutAddOrUpdate = prevQueue.filter(op => 
+            !(op.type !== 'delete' && op.payload.id === debtId)
+        );
+        const alreadyHasDelete = queueWithoutAddOrUpdate.some(op => op.type === 'delete' && op.payload.id === debtId);
+        if(alreadyHasDelete) return queueWithoutAddOrUpdate;
+
+        return [...queueWithoutAddOrUpdate, { type: 'delete', payload: { id: debtId } }];
       });
 
       toast({
         title: 'Record Deleted Locally',
         description: 'This change will sync when you are next online.',
-        variant: 'destructive',
       });
 
       if (isOnline) {
