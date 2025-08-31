@@ -8,7 +8,7 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { Header } from '@/components/Header';
 import { TransactionList } from '@/components/TransactionList';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Wifi, WifiOff } from 'lucide-react';
+import { Wifi, WifiOff, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TransactionForm } from '@/components/TransactionForm';
@@ -25,9 +25,8 @@ export default function Home() {
   const [accounts, setAccounts] = useLocalStorage<Account[]>('accounts', []);
   const [syncQueue, setSyncQueue] = useLocalStorage<SyncOperation[]>('syncQueue', []);
   
-  // isLoading is for background server fetches, not initial render.
-  const [isLoading, setIsLoading] = useState(false); 
-  const [isOnline, setIsOnline] = useState(true); // Assume online by default
+  const [isLoading, setIsLoading] = useState(true); // Start with loading true for initial fetch
+  const [isOnline, setIsOnline] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
 
   const [isTransactionFormOpen, setIsTransactionFormOpen] = useState(false);
@@ -38,7 +37,6 @@ export default function Home() {
   isSyncingRef.current = isSyncing;
 
   const processSyncQueue = useCallback(async () => {
-    // This function should only run when online and not already syncing.
     if (!navigator.onLine || isSyncingRef.current || syncQueue.length === 0) {
       return;
     }
@@ -76,90 +74,80 @@ export default function Home() {
         }
       } catch (error) {
         console.error('Sync error:', error);
-        // If an operation fails, we stop and keep it in the queue for the next attempt.
-        // We break here to avoid potential data consistency issues from out-of-order operations.
         break; 
       }
     }
     
-    // Remove the successfully synced operations from the front of the queue.
-    const remainingOps = syncQueue.slice(successfullySyncedOps.length);
-    setSyncQueue(remainingOps);
-
-    // After a sync attempt, always fetch the latest state from the server
-    // to ensure local data is consistent with the source of truth.
+    const newSyncQueue = syncQueue.slice(successfullySyncedOps.length);
+    setSyncQueue(newSyncQueue);
+    
+    // Always fetch latest state from server after sync attempt
     try {
-      setIsLoading(true);
       const res = await fetch('/api/transactions');
       if (!res.ok) throw new Error('Failed to re-fetch transactions post-sync');
       const serverTransactions: Transaction[] = await res.json();
       setTransactions(serverTransactions);
       
-      if (successfullySyncedOps.length > 0) {
-          if (remainingOps.length > 0) {
-            toast({ title: 'Sync Partially Complete', description: `${successfullySyncedOps.length} changes synced. ${remainingOps.length} remaining.` });
+       if (successfullySyncedOps.length > 0) {
+          if (newSyncQueue.length > 0) {
+            toast({ title: 'Sync Partially Complete', description: `${successfullySyncedOps.length} changes synced. ${newSyncQueue.length} remaining.` });
           } else {
             toast({ title: 'Sync Complete!', description: 'All changes have been saved to the cloud.' });
           }
       }
     } catch (error) {
       console.error("Could not fetch from remote after sync.", error);
-      toast({ title: 'Sync Error', description: `Could not verify data with the server. Please try again later.`, variant: 'destructive'});
+      toast({ title: 'Sync Error', description: `Could not verify data with the server. Please check your connection.`, variant: 'destructive'});
     } finally {
       setIsSyncing(false);
-      setIsLoading(false);
     }
   }, [syncQueue, setSyncQueue, toast, setTransactions]);
 
   useEffect(() => {
-    // This function sets the online status and is called on mount and on network change events.
     const updateOnlineStatus = () => {
-      setIsOnline(navigator.onLine);
+      const online = navigator.onLine;
+      setIsOnline(online);
+      if (online) {
+        processSyncQueue();
+      }
     };
-
-    // Check status on initial mount.
-    updateOnlineStatus();
 
     window.addEventListener('online', updateOnlineStatus);
     window.addEventListener('offline', updateOnlineStatus);
-    
-    // Fetch initial data from server if online.
-    const initialFetch = async () => {
+
+    // Initial load logic
+    const initialLoad = async () => {
+      // We already have local data from useLocalStorage. Set loading to false.
+      setIsLoading(false);
+      // If we are online, try to fetch the latest data from the server.
       if (navigator.onLine) {
-        setIsLoading(true);
+        setIsSyncing(true); // Show syncing indicator during initial fetch
         try {
+          // First process any pending changes
+          await processSyncQueue();
+          // Then fetch the latest state
           const response = await fetch('/api/transactions');
           if (!response.ok) throw new Error('Failed to fetch initial data');
           const serverTransactions: Transaction[] = await response.json();
-          // Overwrite local data with server data, as server is source of truth.
-          // This ensures consistency on the first load when online.
           setTransactions(serverTransactions);
         } catch (error) {
           console.warn("Could not fetch from remote on initial load, using local data.", error);
-          // If the fetch fails, we simply rely on the data already loaded from localStorage by useLocalStorage.
+          toast({ title: "Offline Mode", description: "Could not connect to the server. Using local data.", variant: "default" });
         } finally {
-          setIsLoading(false);
+          setIsSyncing(false);
         }
+      } else {
+        setIsOnline(false);
       }
     };
     
-    initialFetch();
+    initialLoad();
 
     return () => {
       window.removeEventListener('online', updateOnlineStatus);
       window.removeEventListener('offline', updateOnlineStatus);
     };
-  // We only want this to run once on mount.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); 
-
-  // This effect is dedicated to triggering the sync process whenever the app comes online.
-  useEffect(() => {
-    if (isOnline) {
-      processSyncQueue();
-    }
-  }, [isOnline, processSyncQueue]);
-
+  }, [processSyncQueue, setTransactions, toast]);
 
   const handleAddTransaction = () => {
     setEditingTransaction(null);
@@ -186,16 +174,13 @@ export default function Home() {
       accountName: values.accountId,
     };
 
-    // Optimistically update local state first
     if (isEditing) {
       setTransactions(prev => prev.map(t => t.id === transactionData.id ? transactionData : t));
     } else {
       setTransactions(prev => [transactionData, ...prev]);
     }
     
-    // Add to sync queue
     setSyncQueue(prev => {
-        // To ensure data integrity, especially for edits, we remove any previous operations for this ID.
         const filtered = prev.filter(op => !('id' in op.payload) || op.payload.id !== transactionData.id);
         const operationType = isEditing ? 'update' : 'add';
         return [...filtered, { type: operationType, payload: transactionData }];
@@ -214,23 +199,19 @@ export default function Home() {
   }
 
   const handleDeleteTransaction = (transactionId: string) => {
-      // Optimistically update local state first
       setTransactions(prev => prev.filter(t => t.id !== transactionId));
       
-      // Add to sync queue
       setSyncQueue(prev => {
-        // Important: Remove any other operations for this ID before adding a 'delete'
-        // This prevents syncing an add/update for an item that should be deleted.
         const filtered = prev.filter(op => !('id' in op.payload) || op.payload.id !== transactionId);
         return [...filtered, { type: 'delete', payload: { id: transactionId } }];
       });
 
       toast({
         title: 'Transaction Deleted Locally',
-        description: 'The transaction will be permanently deleted when you are next online.',
+        description: 'This change will sync when you are next online.',
+        variant: 'destructive',
       });
 
-      // Immediately try to sync if online
       if (isOnline) {
           processSyncQueue();
       }
@@ -257,95 +238,88 @@ export default function Home() {
     }).format(amount);
   };
   
-  // By default, the app now shows the content immediately using local data.
-  // The "offline" message is only shown if the user is offline AND there are no transactions at all.
+  if (isLoading) {
+     return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-background text-center p-4">
+        <DollarSign className="h-16 w-16 text-primary mb-4 animate-pulse" />
+        <h1 className="text-2xl font-semibold mb-2">Loading your finances...</h1>
+        <p className="text-muted-foreground">Please wait a moment.</p>
+      </div>
+    );
+  }
+
   if (!isOnline && transactions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-background text-center">
-        <DollarSign className="h-16 w-16 text-primary mb-4" />
+      <div className="flex flex-col items-center justify-center min-h-screen bg-background text-center p-4">
+        <WifiOff className="h-16 w-16 text-destructive mb-4" />
         <h1 className="text-2xl font-semibold mb-2">You're Offline</h1>
-        <p className="text-muted-foreground">Connect to the internet to get started.</p>
+        <p className="text-muted-foreground">Connect to the internet to get started and sync your data.</p>
       </div>
     );
   }
 
   return (
     <>
-    <div className="flex min-h-screen w-full flex-col">
+    <div className="flex min-h-screen w-full flex-col bg-muted/40">
       <Header
         accounts={accounts}
         setAccounts={setAccounts}
         onAddTransaction={handleAddTransaction}
       />
-      <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-        <Alert variant={isOnline ? 'default' : 'destructive'}>
+      <main className="flex flex-1 flex-col gap-4 p-4 sm:p-6 md:p-8">
+        <Alert variant={isOnline ? 'default' : 'destructive'} className="shadow-sm">
             <div className="flex items-center justify-between">
                 <div className="flex items-center">
                     {isOnline ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
-                    <AlertTitle className="ml-2">{isOnline ? "You're online" : "You're offline"}</AlertTitle>
+                    <AlertTitle className="ml-2">{isOnline ? "You're Online" : "You're Offline"}</AlertTitle>
                 </div>
                  {(syncQueue.length > 0 || isSyncing) && (
                     <Badge variant="secondary">
-                      {isSyncing ? 'Syncing...' : `${syncQueue.length} changes pending`}
+                      {isSyncing ? 'Syncing...' : `${syncQueue.length} pending`}
                     </Badge>
                 )}
             </div>
             <AlertDescription>
-             {isOnline ? (isSyncing ? "Saving changes to the cloud..." : (syncQueue.length === 0 ? "All changes are saved to the cloud." : "Ready to sync pending changes.")) : "Your changes are saved locally and will sync when you're back online."}
+             {isOnline ? (isSyncing ? "Saving changes to the cloud..." : (syncQueue.length === 0 ? "All changes are saved and synced." : "Ready to sync pending changes.")) : "Changes are saved locally and will sync when you're back online."}
             </AlertDescription>
         </Alert>
 
-        <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Income</CardTitle>
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" className="h-4 w-4 text-muted-foreground"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatCurrency(totalIncome)}</div>
+              <div className="text-2xl font-bold text-green-600">{formatCurrency(totalIncome)}</div>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
-               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" className="h-4 w-4 text-muted-foreground"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-destructive">{formatCurrency(totalExpenses)}</div>
+              <div className="text-2xl font-bold text-red-600">{formatCurrency(totalExpenses)}</div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="sm:col-span-2 lg:col-span-1">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Balance</CardTitle>
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" className="h-4 w-4 text-muted-foreground"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCurrency(balance)}</div>
             </CardContent>
           </Card>
         </div>
-        <div className="grid gap-4 md:gap-8 lg:grid-cols-1">
-          <div className="xl:col-span-2">
-            {isLoading && transactions.length === 0 ? (
-               <Card>
-                  <CardHeader>
-                    <CardTitle>Recent Transactions</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <Skeleton className="h-12 w-full" />
-                    <Skeleton className="h-12 w-full" />
-                    <Skeleton className="h-12 w-full" />
-                  </CardContent>
-                </Card>
-            ) : (
-              <TransactionList
-                transactions={transactions}
-                onEdit={handleEditTransaction}
-                onDelete={handleDeleteTransaction}
-              />
-            )}
-          </div>
-        </div>
+        
+        <TransactionList
+          transactions={transactions}
+          onEdit={handleEditTransaction}
+          onDelete={handleDeleteTransaction}
+        />
+      
       </main>
     </div>
      <TransactionForm

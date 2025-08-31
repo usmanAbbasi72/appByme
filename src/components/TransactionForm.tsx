@@ -23,6 +23,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ScrollArea } from './ui/scroll-area';
 
 const transactionSchema = z.object({
   type: z.enum(['income', 'expense']),
@@ -63,7 +64,7 @@ export function TransactionForm({ isOpen, onClose, accounts, onSubmit, transacti
       } else {
         form.reset({
           type: 'expense',
-          amount: 0,
+          amount: undefined,
           date: new Date(),
           reason: '',
           category: '',
@@ -84,7 +85,7 @@ export function TransactionForm({ isOpen, onClose, accounts, onSubmit, transacti
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="overflow-y-auto">
+      <SheetContent className="flex flex-col">
         <SheetHeader>
           <SheetTitle>{isEditing ? 'Edit' : 'Add'} Transaction</SheetTitle>
           <SheetDescription>
@@ -92,6 +93,7 @@ export function TransactionForm({ isOpen, onClose, accounts, onSubmit, transacti
              Click save when you&apos;re done.
           </SheetDescription>
         </SheetHeader>
+        <ScrollArea className="flex-1 pr-6 -mr-6">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-6 py-6">
             <FormField
@@ -99,24 +101,33 @@ export function TransactionForm({ isOpen, onClose, accounts, onSubmit, transacti
               name="type"
               render={({ field }) => (
                 <FormItem className="space-y-3">
-                  <FormLabel>Type</FormLabel>
+                  <FormLabel>Transaction Type</FormLabel>
                   <FormControl>
                     <RadioGroup
-                      onValueChange={field.onChange}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        form.setValue('category', '');
+                      }}
                       value={field.value}
-                      className="flex space-x-4"
+                      className="grid grid-cols-2 gap-4"
                     >
-                      <FormItem className="flex items-center space-x-2 space-y-0">
-                        <FormControl>
-                          <RadioGroupItem value="income" />
-                        </FormControl>
-                        <FormLabel className="font-normal">Income</FormLabel>
+                      <FormItem>
+                         <RadioGroupItem value="income" id="income" className="sr-only" />
+                         <FormLabel htmlFor="income" className={cn(
+                           "flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground",
+                            field.value === 'income' && "border-primary"
+                         )}>
+                          Income
+                        </FormLabel>
                       </FormItem>
-                      <FormItem className="flex items-center space-x-2 space-y-0">
-                        <FormControl>
-                          <RadioGroupItem value="expense" />
-                        </FormControl>
-                        <FormLabel className="font-normal">Expense</FormLabel>
+                     <FormItem>
+                         <RadioGroupItem value="expense" id="expense" className="sr-only" />
+                         <FormLabel htmlFor="expense" className={cn(
+                           "flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground",
+                            field.value === 'expense' && "border-primary"
+                         )}>
+                          Expense
+                        </FormLabel>
                       </FormItem>
                     </RadioGroup>
                   </FormControl>
@@ -144,7 +155,7 @@ export function TransactionForm({ isOpen, onClose, accounts, onSubmit, transacti
               name="reason"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Reason</FormLabel>
+                  <FormLabel>Reason / Description</FormLabel>
                   <FormControl>
                     <Input placeholder="e.g., Groceries, Salary" {...field} />
                   </FormControl>
@@ -166,7 +177,7 @@ export function TransactionForm({ isOpen, onClose, accounts, onSubmit, transacti
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {TRANSACTION_CATEGORIES[type].map((category) => (
+                      {TRANSACTION_CATEGORIES[type || 'expense'].map((category) => (
                         <SelectItem key={category} value={category}>
                           {category}
                         </SelectItem>
@@ -210,7 +221,7 @@ export function TransactionForm({ isOpen, onClose, accounts, onSubmit, transacti
               name="date"
               render={({ field }) => (
                 <FormItem className="flex flex-col">
-                  <FormLabel>Date</FormLabel>
+                  <FormLabel>Date of Transaction</FormLabel>
                   <Popover>
                     <PopoverTrigger asChild>
                       <FormControl>
@@ -240,14 +251,14 @@ export function TransactionForm({ isOpen, onClose, accounts, onSubmit, transacti
                 </FormItem>
               )}
             />
-            
-            <SheetFooter>
-              <Button type="submit" disabled={isLoading}>
-                {isLoading ? 'Saving...' : 'Save Transaction'}
-              </Button>
-            </SheetFooter>
           </form>
         </Form>
+        </ScrollArea>
+        <SheetFooter className="pt-4">
+          <Button onClick={form.handleSubmit(handleFormSubmit)} disabled={isLoading} className="w-full">
+            {isLoading ? 'Saving...' : 'Save Transaction'}
+          </Button>
+        </SheetFooter>
       </SheetContent>
     </Sheet>
   );
