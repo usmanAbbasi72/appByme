@@ -8,7 +8,7 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { Header } from '@/components/Header';
 import { TransactionList } from '@/components/TransactionList';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Wifi, WifiOff, DollarSign } from 'lucide-react';
+import { Wifi, WifiOff, IndianRupee } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TransactionForm } from '@/components/TransactionForm';
@@ -25,7 +25,7 @@ export default function Home() {
   const [accounts, setAccounts] = useLocalStorage<Account[]>('accounts', []);
   const [syncQueue, setSyncQueue] = useLocalStorage<SyncOperation[]>('syncQueue', []);
   
-  const [isLoading, setIsLoading] = useState(true); // Start with loading true for initial fetch
+  const [isLoading, setIsLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -78,8 +78,10 @@ export default function Home() {
       }
     }
     
-    const newSyncQueue = syncQueue.slice(successfullySyncedOps.length);
-    setSyncQueue(newSyncQueue);
+    if (successfullySyncedOps.length > 0) {
+      const newSyncQueue = syncQueue.filter(op => !successfullySyncedOps.some(syncedOp => JSON.stringify(syncedOp) === JSON.stringify(op)));
+      setSyncQueue(newSyncQueue);
+    }
     
     // Always fetch latest state from server after sync attempt
     try {
@@ -89,8 +91,8 @@ export default function Home() {
       setTransactions(serverTransactions);
       
        if (successfullySyncedOps.length > 0) {
-          if (newSyncQueue.length > 0) {
-            toast({ title: 'Sync Partially Complete', description: `${successfullySyncedOps.length} changes synced. ${newSyncQueue.length} remaining.` });
+          if (syncQueue.length > successfullySyncedOps.length) {
+            toast({ title: 'Sync Partially Complete', description: `${successfullySyncedOps.length} changes synced. ${syncQueue.length - successfullySyncedOps.length} remaining.` });
           } else {
             toast({ title: 'Sync Complete!', description: 'All changes have been saved to the cloud.' });
           }
@@ -115,39 +117,37 @@ export default function Home() {
     window.addEventListener('online', updateOnlineStatus);
     window.addEventListener('offline', updateOnlineStatus);
 
-    // Initial load logic
+    // Set initial online status
+    setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
     const initialLoad = async () => {
-      // We already have local data from useLocalStorage. Set loading to false.
-      setIsLoading(false);
-      // If we are online, try to fetch the latest data from the server.
-      if (navigator.onLine) {
-        setIsSyncing(true); // Show syncing indicator during initial fetch
-        try {
-          // First process any pending changes
-          await processSyncQueue();
-          // Then fetch the latest state
-          const response = await fetch('/api/transactions');
-          if (!response.ok) throw new Error('Failed to fetch initial data');
-          const serverTransactions: Transaction[] = await response.json();
-          setTransactions(serverTransactions);
-        } catch (error) {
-          console.warn("Could not fetch from remote on initial load, using local data.", error);
-          toast({ title: "Offline Mode", description: "Could not connect to the server. Using local data.", variant: "default" });
-        } finally {
-          setIsSyncing(false);
+        setIsLoading(false);
+        if (navigator.onLine) {
+            await processSyncQueue();
+            try {
+                const res = await fetch('/api/transactions');
+                if (!res.ok) throw new Error('Server fetch failed');
+                const serverTransactions: Transaction[] = await res.json();
+                
+                // Naive merge: server wins for existing, but keep local-only new ones.
+                const localOnly = transactions.filter(local => !serverTransactions.some(server => server.id === local.id));
+                const updatedTransactions = [...serverTransactions, ...localOnly];
+                setTransactions(updatedTransactions);
+                
+            } catch (e) {
+                console.warn('Could not fetch from server on initial load, using local data.', e);
+                toast({ title: "Offline", description: "Could not connect to the server. Using local data."});
+            }
         }
-      } else {
-        setIsOnline(false);
-      }
     };
-    
+
     initialLoad();
 
     return () => {
       window.removeEventListener('online', updateOnlineStatus);
       window.removeEventListener('offline', updateOnlineStatus);
     };
-  }, [processSyncQueue, setTransactions, toast]);
+  }, []);
 
   const handleAddTransaction = () => {
     setEditingTransaction(null);
@@ -181,7 +181,8 @@ export default function Home() {
     }
     
     setSyncQueue(prev => {
-        const filtered = prev.filter(op => !('id' in op.payload) || op.payload.id !== transactionData.id);
+        // For updates, remove any older operations for the same ID.
+        const filtered = prev.filter(op => !('payload' in op && op.payload && 'id' in op.payload && op.payload.id === transactionData.id));
         const operationType = isEditing ? 'update' : 'add';
         return [...filtered, { type: operationType, payload: transactionData }];
     });
@@ -202,8 +203,8 @@ export default function Home() {
       setTransactions(prev => prev.filter(t => t.id !== transactionId));
       
       setSyncQueue(prev => {
-        const filtered = prev.filter(op => !('id' in op.payload) || op.payload.id !== transactionId);
-        return [...filtered, { type: 'delete', payload: { id: transactionId } }];
+        const filteredForDelete = prev.filter(op => !('payload' in op && op.payload && 'id' in op.payload && op.payload.id === transactionId));
+        return [...filteredForDelete, { type: 'delete', payload: { id: transactionId } }];
       });
 
       toast({
@@ -232,16 +233,16 @@ export default function Home() {
   }, [transactions]);
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('en-IN', {
       style: 'currency',
-      currency: 'USD',
+      currency: 'INR',
     }).format(amount);
   };
   
   if (isLoading) {
      return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-background text-center p-4">
-        <DollarSign className="h-16 w-16 text-primary mb-4 animate-pulse" />
+        <IndianRupee className="h-16 w-16 text-primary mb-4 animate-pulse" />
         <h1 className="text-2xl font-semibold mb-2">Loading your finances...</h1>
         <p className="text-muted-foreground">Please wait a moment.</p>
       </div>
@@ -266,7 +267,7 @@ export default function Home() {
         setAccounts={setAccounts}
         onAddTransaction={handleAddTransaction}
       />
-      <main className="flex flex-1 flex-col gap-4 p-4 sm:p-6 md:p-8">
+      <main className="flex flex-1 flex-col gap-4 p-4 sm:p-6 md:gap-8 md:p-8">
         <Alert variant={isOnline ? 'default' : 'destructive'} className="shadow-sm">
             <div className="flex items-center justify-between">
                 <div className="flex items-center">
@@ -288,7 +289,7 @@ export default function Home() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Income</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <IndianRupee className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">{formatCurrency(totalIncome)}</div>
@@ -297,7 +298,7 @@ export default function Home() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <IndianRupee className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-red-600">{formatCurrency(totalExpenses)}</div>
@@ -306,7 +307,7 @@ export default function Home() {
           <Card className="sm:col-span-2 lg:col-span-1">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Balance</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <IndianRupee className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCurrency(balance)}</div>

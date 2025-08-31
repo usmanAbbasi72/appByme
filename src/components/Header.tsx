@@ -1,5 +1,5 @@
 import React from 'react';
-import { DollarSign, Settings, PlusCircle } from 'lucide-react';
+import { IndianRupee, Settings, PlusCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ManageAccountsDialog } from '@/components/ManageAccountsDialog';
 import type { Account } from '@/lib/types';
@@ -17,7 +17,7 @@ export function Header({ accounts, setAccounts, onAddTransaction }: HeaderProps)
     <>
       <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background px-4 sm:px-6">
         <div className="flex items-center gap-2 font-semibold">
-          <DollarSign className="h-6 w-6 text-primary" />
+          <IndianRupee className="h-6 w-6 text-primary" />
           <span className="text-lg">Finance Tracker</span>
         </div>
         <div className="ml-auto flex items-center gap-2">
