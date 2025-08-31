@@ -11,7 +11,7 @@ import { DeleteTransactionDialog } from './DeleteTransactionDialog';
 interface TransactionListProps {
   transactions: Transaction[];
   onEdit: (transaction: Transaction) => void;
-  onDelete: () => void;
+  onDelete: (transactionId: string) => void;
 }
 
 export function TransactionList({ transactions, onEdit, onDelete }: TransactionListProps) {
@@ -28,6 +28,14 @@ export function TransactionList({ transactions, onEdit, onDelete }: TransactionL
     const handleDeleteClick = (transaction: Transaction) => {
         setSelectedTransaction(transaction);
         setIsDeleteDialogOpen(true);
+    }
+    
+    const handleConfirmDelete = () => {
+        if(selectedTransaction) {
+            onDelete(selectedTransaction.id)
+            setIsDeleteDialogOpen(false);
+            setSelectedTransaction(null);
+        }
     }
 
   return (
@@ -99,8 +107,7 @@ export function TransactionList({ transactions, onEdit, onDelete }: TransactionL
      <DeleteTransactionDialog
         isOpen={isDeleteDialogOpen}
         setIsOpen={setIsDeleteDialogOpen}
-        transaction={selectedTransaction}
-        onSuccess={onDelete}
+        onConfirmDelete={handleConfirmDelete}
       />
     </>
   );

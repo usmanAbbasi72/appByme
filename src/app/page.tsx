@@ -1,19 +1,19 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { Account, Transaction } from '@/lib/types';
-import { getTransactions } from '@/lib/actions';
+import { getTransactions, addTransaction, updateTransaction, deleteTransaction } from '@/lib/actions';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 
 import { Header } from '@/components/Header';
 import { TransactionList } from '@/components/TransactionList';
-import { ReportCard } from '@/components/ReportCard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TransactionForm } from '@/components/TransactionForm';
+import { useToast } from '@/hooks/use-toast';
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -22,13 +22,15 @@ export default function Home() {
   const [showNotification, setShowNotification] = useState(false);
   const [isTransactionFormOpen, setIsTransactionFormOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const { toast } = useToast();
 
-  const refreshTransactions = async () => {
+  const refreshTransactions = useCallback(() => {
     setLoading(true);
-    const fetchedTransactions = await getTransactions();
+    const fetchedTransactions = getTransactions();
     setTransactions(fetchedTransactions);
     setLoading(false);
-  };
+  }, []);
+
 
   useEffect(() => {
     refreshTransactions();
@@ -37,7 +39,7 @@ export default function Home() {
     if (lastDismissed !== today) {
       setShowNotification(true);
     }
-  }, []);
+  }, [refreshTransactions]);
 
   const handleDismissNotification = () => {
     setShowNotification(false);
@@ -58,6 +60,50 @@ export default function Home() {
   const handleTransactionFormClose = () => {
     setIsTransactionFormOpen(false);
     setEditingTransaction(null);
+  }
+  
+  const handleTransactionDone = async (values: any) => {
+    const isEditing = !!editingTransaction;
+    try {
+        if (isEditing) {
+            await updateTransaction({ ...values, id: editingTransaction.id, accountName: values.accountId });
+            toast({
+              title: 'Transaction Updated',
+              description: 'Your transaction has been successfully updated.',
+            });
+        } else {
+            await addTransaction({...values, accountName: values.accountId});
+            toast({
+              title: 'Transaction Added',
+              description: 'Your transaction has been successfully recorded.',
+            });
+        }
+        refreshTransactions();
+        handleTransactionFormClose();
+    } catch (error) {
+         toast({
+            title: 'Error',
+            description: `Failed to ${isEditing ? 'update' : 'add'} transaction. Please try again.`,
+            variant: 'destructive',
+          });
+    }
+  }
+
+  const handleDeleteTransaction = async (transactionId: string) => {
+    try {
+      await deleteTransaction(transactionId);
+      toast({
+        title: 'Transaction Deleted',
+        description: 'The transaction has been successfully deleted.',
+      });
+      refreshTransactions();
+    } catch (error) {
+       toast({
+        title: 'Error Deleting Transaction',
+        description: 'Could not delete the transaction. Please try again.',
+        variant: 'destructive',
+      });
+    }
   }
 
   const { totalIncome, totalExpenses, balance } = useMemo(() => {
@@ -136,7 +182,7 @@ export default function Home() {
             </CardContent>
           </Card>
         </div>
-        <div className="grid gap-4 md:gap-8 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 md:gap-8 lg:grid-cols-1">
           <div className="xl:col-span-2">
             {loading ? (
                <Card>
@@ -153,21 +199,18 @@ export default function Home() {
               <TransactionList 
                 transactions={transactions}
                 onEdit={handleEditTransaction}
-                onDelete={refreshTransactions}
+                onDelete={handleDeleteTransaction}
               />
             )}
-          </div>
-          <div>
-            <ReportCard />
           </div>
         </div>
       </main>
     </div>
      <TransactionForm
         isOpen={isTransactionFormOpen}
-        setIsOpen={handleTransactionFormClose}
+        onClose={handleTransactionFormClose}
         accounts={accounts}
-        onTransactionDone={refreshTransactions}
+        onSubmit={handleTransactionDone}
         transactionToEdit={editingTransaction}
       />
     </>

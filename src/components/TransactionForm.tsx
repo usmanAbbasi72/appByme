@@ -5,10 +5,8 @@ import { z } from 'zod';
 import { CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { addTransaction, updateTransaction } from '@/lib/actions';
 import { TRANSACTION_CATEGORIES } from '@/lib/constants';
 import type { Account, Transaction } from '@/lib/types';
-import { useToast } from '@/hooks/use-toast';
 
 import {
   Sheet,
@@ -27,7 +25,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const transactionSchema = z.object({
-  id: z.string().optional(),
   type: z.enum(['income', 'expense']),
   amount: z.coerce.number().positive({ message: 'Please enter a positive amount.' }),
   date: z.date(),
@@ -36,83 +33,57 @@ const transactionSchema = z.object({
   accountId: z.string().optional(),
 });
 
+type TransactionFormValues = z.infer<typeof transactionSchema>;
+
 interface TransactionFormProps {
   isOpen: boolean;
-  setIsOpen: (isOpen: boolean) => void;
+  onClose: () => void;
   accounts: Account[];
-  onTransactionDone: () => void;
+  onSubmit: (values: TransactionFormValues) => void;
   transactionToEdit?: Transaction | null;
 }
 
-export function TransactionForm({ isOpen, setIsOpen, accounts, onTransactionDone, transactionToEdit }: TransactionFormProps) {
+export function TransactionForm({ isOpen, onClose, accounts, onSubmit, transactionToEdit }: TransactionFormProps) {
   const [isLoading, setIsLoading] = React.useState(false);
-  const { toast } = useToast();
   const isEditing = !!transactionToEdit;
 
-  const form = useForm<z.infer<typeof transactionSchema>>({
+  const form = useForm<TransactionFormValues>({
     resolver: zodResolver(transactionSchema),
-    defaultValues: {
-      type: 'expense',
-      amount: 0,
-      date: new Date(),
-      reason: '',
-    },
   });
   
   useEffect(() => {
-    if (isEditing && transactionToEdit) {
-      form.reset({
-        ...transactionToEdit,
-        date: new Date(transactionToEdit.date),
-        amount: Math.abs(transactionToEdit.amount),
-        accountId: transactionToEdit.accountName,
-      });
-    } else {
-      form.reset({
-        type: 'expense',
-        amount: 0,
-        date: new Date(),
-        reason: '',
-        category: '',
-        accountId: '',
-      });
+    if (isOpen) {
+      if (isEditing && transactionToEdit) {
+        form.reset({
+          ...transactionToEdit,
+          date: new Date(transactionToEdit.date),
+          amount: Math.abs(transactionToEdit.amount),
+          accountId: transactionToEdit.accountName,
+        });
+      } else {
+        form.reset({
+          type: 'expense',
+          amount: 0,
+          date: new Date(),
+          reason: '',
+          category: '',
+          accountId: '',
+        });
+      }
     }
   }, [transactionToEdit, isEditing, form, isOpen]);
 
 
   const type = form.watch('type');
 
-  const onSubmit = async (values: z.infer<typeof transactionSchema>) => {
+  const handleFormSubmit = async (values: TransactionFormValues) => {
     setIsLoading(true);
-    try {
-      if (isEditing) {
-        await updateTransaction({ ...values, id: transactionToEdit.id });
-        toast({
-          title: 'Transaction Updated',
-          description: 'Your transaction has been successfully updated.',
-        });
-      } else {
-        await addTransaction(values);
-        toast({
-          title: 'Transaction Added',
-          description: 'Your transaction has been successfully recorded.',
-        });
-      }
-      onTransactionDone();
-      setIsOpen(false);
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: `Failed to ${isEditing ? 'update' : 'add'} transaction. Please try again.`,
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    await onSubmit(values);
+    setIsLoading(false);
   };
 
   return (
-    <Sheet open={isOpen} onOpenChange={setIsOpen}>
+    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="overflow-y-auto">
         <SheetHeader>
           <SheetTitle>{isEditing ? 'Edit' : 'Add'} Transaction</SheetTitle>
@@ -122,7 +93,7 @@ export function TransactionForm({ isOpen, setIsOpen, accounts, onTransactionDone
           </SheetDescription>
         </SheetHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 py-6">
+          <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-6 py-6">
             <FormField
               control={form.control}
               name="type"
