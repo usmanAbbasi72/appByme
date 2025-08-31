@@ -1,25 +1,33 @@
+
 import { getStore } from '@netlify/blobs';
 import { NextRequest, NextResponse } from 'next/server';
 import type { Transaction } from '@/lib/types';
+import { headers } from 'next/headers'
 
 const STORE_NAME = 'transactions_store';
 
-// In a real app, you would get this from the user's session
-const getUserId = () => 'user123';
+const getUserId = () => {
+    const headersList = headers();
+    const userId = headersList.get('x-user-id');
+    return userId;
+};
+
 
 export async function GET(request: NextRequest) {
   const userId = getUserId();
+  if (!userId) {
+    return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+  }
+
   const store = getStore(STORE_NAME);
   const blobKey = `transactions_${userId}`;
 
   try {
     const data = await store.get(blobKey, { type: 'json' });
-    // Ensure we always return an array, even if no data is present
     return NextResponse.json(data || []);
   } catch (error) {
-     // If the blob doesn't exist, get() can throw an error.
-     // In this case, it just means there are no transactions yet.
     if (error instanceof Error && (error.name === 'BlobNotFoundError' || error.message.includes('Not Found'))) {
+        await store.setJSON(blobKey, []);
         return NextResponse.json([]);
     }
     const message = error instanceof Error ? error.message : 'An unexpected error occurred';
@@ -29,6 +37,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const userId = getUserId();
+    if (!userId) {
+        return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+    }
   const store = getStore(STORE_NAME);
   const blobKey = `transactions_${userId}`;
 
@@ -49,7 +60,7 @@ export async function POST(request: NextRequest) {
         if (error instanceof Error && (error.name === 'BlobNotFoundError' || error.message.includes('Not Found'))) {
             // Blob doesn't exist, we'll create it.
         } else {
-            throw error; // Re-throw other errors
+            throw error;
         }
     }
     
@@ -66,3 +77,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: 'Failed to create transaction', error: message }, { status: 500 });
   }
 }
+
+    

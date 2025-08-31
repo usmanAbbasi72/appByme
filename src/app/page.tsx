@@ -14,6 +14,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { TransactionForm } from '@/components/TransactionForm';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
+import { useRouter } from 'next/navigation';
+
 
 type SyncOperation =
   | { type: 'add'; payload: Transaction }
@@ -21,6 +23,9 @@ type SyncOperation =
   | { type: 'delete'; payload: { id: string } };
 
 export default function Home() {
+  const router = useRouter();
+  const [user, setUser] = useState<{username: string} | null>(null);
+
   const [transactions, setTransactions] = useLocalStorage<Transaction[]>('transactions', []);
   const [accounts, setAccounts] = useLocalStorage<Account[]>('accounts', []);
   const [syncQueue, setSyncQueue] = useLocalStorage<SyncOperation[]>('syncQueue', []);
@@ -35,6 +40,16 @@ export default function Home() {
 
   const isSyncingRef = useRef(isSyncing);
   isSyncingRef.current = isSyncing;
+
+  useEffect(() => {
+    const loggedInUser = localStorage.getItem('user');
+    if (!loggedInUser) {
+      router.push('/login');
+    } else {
+      setUser(JSON.parse(loggedInUser));
+    }
+  }, [router]);
+
 
   const processSyncQueue = useCallback(async () => {
     if (!navigator.onLine || isSyncingRef.current || syncQueue.length === 0) {
@@ -117,7 +132,6 @@ export default function Home() {
     window.addEventListener('online', updateOnlineStatus);
     window.addEventListener('offline', updateOnlineStatus);
 
-    // Set initial online status
     setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
     const initialLoad = async () => {
@@ -129,7 +143,6 @@ export default function Home() {
                 if (!res.ok) throw new Error('Server fetch failed');
                 const serverTransactions: Transaction[] = await res.json();
                 
-                // Naive merge: server wins for existing, but keep local-only new ones.
                 const localOnly = transactions.filter(local => !serverTransactions.some(server => server.id === local.id));
                 const updatedTransactions = [...serverTransactions, ...localOnly];
                 setTransactions(updatedTransactions);
@@ -140,14 +153,18 @@ export default function Home() {
             }
         }
     };
+    
+    if (user) {
+        initialLoad();
+    }
 
-    initialLoad();
 
     return () => {
       window.removeEventListener('online', updateOnlineStatus);
       window.removeEventListener('offline', updateOnlineStatus);
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const handleAddTransaction = () => {
     setEditingTransaction(null);
@@ -181,7 +198,6 @@ export default function Home() {
     }
     
     setSyncQueue(prev => {
-        // For updates, remove any older operations for the same ID.
         const filtered = prev.filter(op => !('payload' in op && op.payload && 'id' in op.payload && op.payload.id === transactionData.id));
         const operationType = isEditing ? 'update' : 'add';
         return [...filtered, { type: operationType, payload: transactionData }];
@@ -193,7 +209,6 @@ export default function Home() {
     });
     
     handleTransactionFormClose();
-    // Immediately try to sync if online
     if (isOnline) {
         processSyncQueue();
     }
@@ -239,7 +254,15 @@ export default function Home() {
     }).format(amount);
   };
   
-  if (isLoading) {
+  const handleLogout = () => {
+    localStorage.removeItem('user');
+    setTransactions([]);
+    setAccounts([]);
+    setSyncQueue([]);
+    router.push('/login');
+  };
+  
+  if (isLoading || !user) {
      return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-background text-center p-4">
         <IndianRupee className="h-16 w-16 text-primary mb-4 animate-pulse" />
@@ -263,6 +286,8 @@ export default function Home() {
     <>
     <div className="flex min-h-screen w-full flex-col bg-muted/40">
       <Header
+        username={user.username}
+        onLogout={handleLogout}
         accounts={accounts}
         setAccounts={setAccounts}
         onAddTransaction={handleAddTransaction}
@@ -333,3 +358,5 @@ export default function Home() {
     </>
   );
 }
+
+    

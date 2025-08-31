@@ -1,14 +1,22 @@
+
 import { getStore } from '@netlify/blobs';
 import { NextRequest, NextResponse } from 'next/server';
 import type { Transaction } from '@/lib/types';
+import { headers } from 'next/headers';
 
 const STORE_NAME = 'transactions_store';
 
-// A real app would have user authentication and rules
-const getUserId = () => 'user123';
+const getUserId = () => {
+    const headersList = headers();
+    const userId = headersList.get('x-user-id');
+    return userId;
+};
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   const userId = getUserId();
+   if (!userId) {
+    return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+  }
   const store = getStore(STORE_NAME);
   const blobKey = `transactions_${userId}`;
   
@@ -46,6 +54,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   const userId = getUserId();
+   if (!userId) {
+    return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+  }
   const store = getStore(STORE_NAME);
   const blobKey = `transactions_${userId}`;
 
@@ -77,3 +88,5 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     return NextResponse.json({ message: 'Failed to delete transaction', error: message }, { status: 500 });
   }
 }
+
+    
