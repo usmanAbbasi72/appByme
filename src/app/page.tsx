@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { Account, Transaction } from '@/lib/types';
-import { getTransactions, addTransaction, updateTransaction, deleteTransaction } from '@/lib/actions';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 
 import { Header } from '@/components/Header';
@@ -24,12 +23,24 @@ export default function Home() {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const { toast } = useToast();
 
-  const refreshTransactions = useCallback(() => {
+  const refreshTransactions = useCallback(async () => {
     setLoading(true);
-    const fetchedTransactions = getTransactions();
-    setTransactions(fetchedTransactions);
-    setLoading(false);
-  }, []);
+    try {
+      const response = await fetch('/api/transactions');
+      if (!response.ok) throw new Error('Failed to fetch transactions');
+      const data = await response.json();
+      setTransactions(data.transactions);
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: 'Error',
+        description: 'Could not fetch transactions from the database.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
 
 
   useEffect(() => {
@@ -64,26 +75,32 @@ export default function Home() {
   
   const handleTransactionDone = async (values: any) => {
     const isEditing = !!editingTransaction;
+    const url = isEditing ? `/api/transactions/${editingTransaction.id}` : '/api/transactions';
+    const method = isEditing ? 'PUT' : 'POST';
+
     try {
-        if (isEditing) {
-            await updateTransaction({ ...values, id: editingTransaction.id, accountName: values.accountId });
-            toast({
-              title: 'Transaction Updated',
-              description: 'Your transaction has been successfully updated.',
-            });
-        } else {
-            await addTransaction({...values, accountName: values.accountId});
-            toast({
-              title: 'Transaction Added',
-              description: 'Your transaction has been successfully recorded.',
-            });
+        const response = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...values, accountName: values.accountId }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || `Failed to ${isEditing ? 'update' : 'add'} transaction.`);
         }
+        
+        toast({
+          title: `Transaction ${isEditing ? 'Updated' : 'Added'}`,
+          description: `Your transaction has been successfully ${isEditing ? 'updated' : 'recorded'}.`,
+        });
+        
         refreshTransactions();
         handleTransactionFormClose();
-    } catch (error) {
+    } catch (error: any) {
          toast({
             title: 'Error',
-            description: `Failed to ${isEditing ? 'update' : 'add'} transaction. Please try again.`,
+            description: error.message || `An unexpected error occurred. Please try again.`,
             variant: 'destructive',
           });
     }
@@ -91,7 +108,9 @@ export default function Home() {
 
   const handleDeleteTransaction = async (transactionId: string) => {
     try {
-      await deleteTransaction(transactionId);
+      const response = await fetch(`/api/transactions/${transactionId}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Failed to delete transaction');
+
       toast({
         title: 'Transaction Deleted',
         description: 'The transaction has been successfully deleted.',
