@@ -7,6 +7,9 @@ const withPWA = require('next-pwa')({
   register: true,
   skipWaiting: true,
   disable: !isProduction,
+  fallbacks: {
+    document: '/', // This ensures that navigation requests fallback to the root page.
+  },
 });
 
 const nextConfig: NextConfig = {
