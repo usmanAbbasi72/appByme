@@ -1,51 +1,141 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import type { Account, Transaction } from '@/lib/types';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 
 import { Header } from '@/components/Header';
 import { TransactionList } from '@/components/TransactionList';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal } from 'lucide-react';
+import { Terminal, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TransactionForm } from '@/components/TransactionForm';
 import { useToast } from '@/hooks/use-toast';
+import { Badge } from '@/components/ui/badge';
+
+type SyncOperation = 
+  | { type: 'add'; payload: Transaction }
+  | { type: 'update'; payload: Transaction }
+  | { type: 'delete'; payload: { id: string } };
+
 
 export default function Home() {
   const [transactions, setTransactions] = useLocalStorage<Transaction[]>('transactions', []);
   const [accounts, setAccounts] = useLocalStorage<Account[]>('accounts', []);
+  const [syncQueue, setSyncQueue] = useLocalStorage<SyncOperation[]>('syncQueue', []);
+  
   const [loading, setLoading] = useState(true);
-  const [showNotification, setShowNotification] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+
   const [isTransactionFormOpen, setIsTransactionFormOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const { toast } = useToast();
 
-  const refreshTransactions = useCallback(() => {
-    setLoading(true);
-    // Data is now sourced from useLocalStorage, so we just need to end the loading state.
-    // We can sort it here to ensure order is always correct.
-    setTransactions(prev => [...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-    setLoading(false);
-  }, [setTransactions]);
+  const isSyncingRef = useRef(isSyncing);
+  isSyncingRef.current = isSyncing;
 
+  const processSyncQueue = useCallback(async () => {
+    if (!isOnline || isSyncingRef.current || syncQueue.length === 0) {
+      return;
+    }
+
+    setIsSyncing(true);
+    toast({ title: 'Syncing started...', description: `Processing ${syncQueue.length} offline changes.` });
+
+    const queue = [...syncQueue];
+    let failedOperations: SyncOperation[] = [];
+
+    for (const op of queue) {
+      try {
+        let response;
+        if (op.type === 'add') {
+          response = await fetch('/api/transactions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(op.payload),
+          });
+        } else if (op.type === 'update') {
+          response = await fetch(`/api/transactions/${op.payload.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(op.payload),
+          });
+        } else if (op.type === 'delete') {
+          response = await fetch(`/api/transactions/${op.payload.id}`, {
+            method: 'DELETE',
+          });
+        }
+        if (!response || !response.ok) {
+          throw new Error(`Failed to sync ${op.type} operation`);
+        }
+      } catch (error) {
+        console.error('Sync error:', error);
+        failedOperations.push(op);
+      }
+    }
+
+    if (failedOperations.length > 0) {
+      setSyncQueue(failedOperations);
+      toast({ title: 'Sync Partially Failed', description: `${failedOperations.length} changes could not be synced.`, variant: 'destructive'});
+    } else {
+      setSyncQueue([]);
+      toast({ title: 'Sync Complete!', description: 'All offline changes have been saved to the cloud.' });
+    }
+    
+    setIsSyncing(false);
+     // Fetch latest data after sync
+    await fetchTransactions();
+
+  }, [isOnline, syncQueue, setSyncQueue, toast]);
+
+  const fetchTransactions = useCallback(async () => {
+    setLoading(true);
+    if (isOnline) {
+      try {
+        const response = await fetch('/api/transactions');
+        if (!response.ok) throw new Error('Failed to fetch from remote');
+        const remoteTransactions: Transaction[] = await response.json();
+        
+        // Naive merge: remote data wins. A more robust solution would handle conflicts.
+        setTransactions(remoteTransactions);
+
+      } catch (error) {
+        console.warn("Could not fetch from remote, using local data.", error);
+        // If remote fetch fails, we just use local data.
+      }
+    }
+    setLoading(false);
+  }, [isOnline, setTransactions]);
 
   useEffect(() => {
-    refreshTransactions();
-    const lastDismissed = localStorage.getItem('notificationDismissed');
-    const today = new Date().toDateString();
-    if (lastDismissed !== today) {
-      setShowNotification(true);
-    }
-  }, [refreshTransactions]);
+    // Initial fetch and setup online/offline listeners
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
 
-  const handleDismissNotification = () => {
-    setShowNotification(false);
-    const today = new Date().toDateString();
-    localStorage.setItem('notificationDismissed', today);
-  };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    if (typeof navigator.onLine === 'boolean') {
+      setIsOnline(navigator.onLine);
+    }
+    
+    fetchTransactions();
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [fetchTransactions]);
+
+  useEffect(() => {
+    if (isOnline) {
+      processSyncQueue();
+    }
+  }, [isOnline, processSyncQueue]);
+
 
   const handleAddTransaction = () => {
     setEditingTransaction(null);
@@ -65,50 +155,37 @@ export default function Home() {
   const handleTransactionDone = async (values: any) => {
     const isEditing = !!editingTransaction;
     
-    try {
-        if (isEditing) {
-            setTransactions(prev => prev.map(t => t.id === editingTransaction.id ? { ...values, id: editingTransaction.id, date: values.date.toISOString(), accountName: values.accountId } : t));
-        } else {
-            const newTransaction: Transaction = {
-                ...values,
-                id: crypto.randomUUID(),
-                date: values.date.toISOString(),
-                accountName: values.accountId,
-            };
-            setTransactions(prev => [newTransaction, ...prev]);
-        }
-        
-        toast({
-          title: `Transaction ${isEditing ? 'Updated' : 'Added'}`,
-          description: `Your transaction has been successfully ${isEditing ? 'updated' : 'recorded'}.`,
-        });
-        
-        refreshTransactions();
-        handleTransactionFormClose();
-    } catch (error: any) {
-         toast({
-            title: 'Error',
-            description: `An unexpected error occurred. Please try again.`,
-            variant: 'destructive',
-          });
+    const transactionData: Transaction = {
+      ...values,
+      id: isEditing ? editingTransaction.id : crypto.randomUUID(),
+      date: values.date.toISOString(),
+      accountName: values.accountId,
+    };
+
+    if (isEditing) {
+        setTransactions(prev => prev.map(t => t.id === transactionData.id ? transactionData : t));
+        setSyncQueue(prev => [...prev, { type: 'update', payload: transactionData }]);
+    } else {
+        setTransactions(prev => [transactionData, ...prev]);
+        setSyncQueue(prev => [...prev, { type: 'add', payload: transactionData }]);
     }
+    
+    toast({
+      title: `Transaction ${isEditing ? 'Updated' : 'Added'} Locally`,
+      description: `Your transaction is saved locally and will sync when online.`,
+    });
+    
+    handleTransactionFormClose();
+    // No immediate fetch, let sync handle it.
   }
 
   const handleDeleteTransaction = async (transactionId: string) => {
-    try {
       setTransactions(prev => prev.filter(t => t.id !== transactionId));
+      setSyncQueue(prev => [...prev, { type: 'delete', payload: { id: transactionId } }]);
       toast({
-        title: 'Transaction Deleted',
-        description: 'The transaction has been successfully deleted.',
+        title: 'Transaction Deleted Locally',
+        description: 'The transaction will be permanently deleted when online.',
       });
-      refreshTransactions();
-    } catch (error) {
-       toast({
-        title: 'Error Deleting Transaction',
-        description: 'Could not delete the transaction. Please try again.',
-        variant: 'destructive',
-      });
-    }
   }
 
   const { totalIncome, totalExpenses, balance } = useMemo(() => {
@@ -141,23 +218,21 @@ export default function Home() {
         onAddTransaction={handleAddTransaction}
       />
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-        {showNotification && (
-          <Alert>
-            <Terminal className="h-4 w-4" />
-            <AlertTitle>Hey there!</AlertTitle>
+        <Alert variant={isOnline ? 'default' : 'destructive'}>
+            <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                    {isOnline ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+                    <AlertTitle className="ml-2">{isOnline ? "You're online" : "You're offline"}</AlertTitle>
+                </div>
+                 {syncQueue.length > 0 && (
+                    <Badge variant="secondary">{syncQueue.length} changes waiting to sync</Badge>
+                )}
+            </div>
             <AlertDescription>
-              Don&apos;t forget to log your income and expenses for today to keep your finances on track.
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleDismissNotification}
-                className="ml-4"
-              >
-                Dismiss
-              </Button>
+             {isOnline ? "All changes will be synced with the cloud." : "Your changes are being saved locally and will sync when you're back online."}
             </AlertDescription>
-          </Alert>
-        )}
+        </Alert>
+
         <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
