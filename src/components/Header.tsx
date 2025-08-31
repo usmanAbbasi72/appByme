@@ -1,6 +1,7 @@
 
 import React from 'react';
-import { Wallet, Settings, PlusCircle, LogOut } from 'lucide-react';
+import Link from 'next/link';
+import { Wallet, Settings, PlusCircle, LogOut, BookUser } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -29,14 +30,15 @@ export function Header({ username, onLogout, accounts, setAccounts, onAddTransac
   return (
     <>
       <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background px-4 sm:px-6">
-        <div className="flex items-center gap-2 font-semibold">
+        <Link href="/" className="flex items-center gap-2 font-semibold">
           <Wallet className="h-6 w-6 text-primary" />
-          <span className="text-lg">Osman's Personal Assistant</span>
-        </div>
+          <span className="text-lg hidden sm:inline-block">Osman's Personal Assistant</span>
+        </Link>
         <div className="ml-auto flex items-center gap-4">
            <Button size="sm" className="gap-1" onClick={onAddTransaction}>
             <PlusCircle className="h-4 w-4" />
-            <span>Add Transaction</span>
+            <span className="hidden sm:inline">Add Transaction</span>
+             <span className="sm:hidden">Add</span>
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -54,6 +56,12 @@ export function Header({ username, onLogout, accounts, setAccounts, onAddTransac
                 <Settings className="mr-2 h-4 w-4" />
                 <span>Manage Accounts</span>
               </DropdownMenuItem>
+               <Link href="/debts">
+                  <DropdownMenuItem>
+                    <BookUser className="mr-2 h-4 w-4" />
+                    <span>Debts</span>
+                  </DropdownMenuItem>
+                </Link>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={onLogout}>
                 <LogOut className="mr-2 h-4 w-4" />
@@ -72,5 +80,3 @@ export function Header({ username, onLogout, accounts, setAccounts, onAddTransac
     </>
   );
 }
-
-    
