@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
      // If the blob doesn't exist, get() can throw an error.
      // In this case, it just means there are no transactions yet.
-    if (error instanceof Error && error.message.includes('Not Found')) {
+    if (error instanceof Error && (error.name === 'BlobNotFoundError' || error.message.includes('Not Found'))) {
         return NextResponse.json([]);
     }
     const message = error instanceof Error ? error.message : 'An unexpected error occurred';
@@ -35,22 +35,26 @@ export async function POST(request: NextRequest) {
   try {
     const newTransaction: Transaction = await request.json();
     
-    // Ensure the transaction has an ID
     if (!newTransaction.id) {
         newTransaction.id = crypto.randomUUID();
     }
     
-    const currentData = await store.get(blobKey, { type: 'json' }).catch(err => {
-        // If the blob doesn't exist, start with an empty array.
-        if (err.message.includes('Not Found')) return [];
-        throw err;
-    });
-
-    const transactions: Transaction[] = Array.isArray(currentData) ? currentData : [];
+    let transactions: Transaction[] = [];
+    try {
+        const currentData = await store.get(blobKey, { type: 'json' });
+        if (Array.isArray(currentData)) {
+            transactions = currentData;
+        }
+    } catch (error) {
+        if (error instanceof Error && (error.name === 'BlobNotFoundError' || error.message.includes('Not Found'))) {
+            // Blob doesn't exist, we'll create it.
+        } else {
+            throw error; // Re-throw other errors
+        }
+    }
     
-    // Avoid adding duplicates
     if (transactions.some(t => t.id === newTransaction.id)) {
-        return NextResponse.json(newTransaction, { status: 200 }); // Already exists, treat as success
+        return NextResponse.json(newTransaction, { status: 200 });
     }
 
     transactions.push(newTransaction);

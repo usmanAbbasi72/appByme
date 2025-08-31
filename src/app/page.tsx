@@ -37,6 +37,29 @@ export default function Home() {
   const isSyncingRef = useRef(isSyncing);
   isSyncingRef.current = isSyncing;
 
+  const fetchTransactions = useCallback(async () => {
+    if (!isOnline) {
+      setLoading(false);
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const response = await fetch('/api/transactions');
+      if (!response.ok) throw new Error('Failed to fetch from remote');
+      const remoteTransactions: Transaction[] = await response.json();
+      
+      // Naive merge: remote data wins. A more robust solution would handle conflicts.
+      setTransactions(remoteTransactions);
+
+    } catch (error) {
+      console.warn("Could not fetch from remote, using local data.", error);
+      // If remote fetch fails, we just use local data.
+    } finally {
+      setLoading(false);
+    }
+  }, [isOnline, setTransactions]);
+
   const processSyncQueue = useCallback(async () => {
     if (!isOnline || isSyncingRef.current || syncQueue.length === 0) {
       return;
@@ -89,40 +112,24 @@ export default function Home() {
      // Fetch latest data after sync
     await fetchTransactions();
 
-  }, [isOnline, syncQueue, setSyncQueue, toast]);
-
-  const fetchTransactions = useCallback(async () => {
-    setLoading(true);
-    if (isOnline) {
-      try {
-        const response = await fetch('/api/transactions');
-        if (!response.ok) throw new Error('Failed to fetch from remote');
-        const remoteTransactions: Transaction[] = await response.json();
-        
-        // Naive merge: remote data wins. A more robust solution would handle conflicts.
-        setTransactions(remoteTransactions);
-
-      } catch (error) {
-        console.warn("Could not fetch from remote, using local data.", error);
-        // If remote fetch fails, we just use local data.
-      }
-    }
-    setLoading(false);
-  }, [isOnline, setTransactions]);
+  }, [isOnline, syncQueue, setSyncQueue, toast, fetchTransactions]);
 
   useEffect(() => {
-    // Initial fetch and setup online/offline listeners
+    // Set initial online status
+    if (typeof navigator.onLine === 'boolean') {
+      setIsOnline(navigator.onLine);
+    }
+    // Load local data immediately
+    setLoading(false);
+
+    // Then try to fetch remote data
+    fetchTransactions();
+
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-    
-    if (typeof navigator.onLine === 'boolean') {
-      setIsOnline(navigator.onLine);
-    }
-    
-    fetchTransactions();
 
     return () => {
       window.removeEventListener('online', handleOnline);
@@ -157,7 +164,7 @@ export default function Home() {
     
     const transactionData: Transaction = {
       ...values,
-      id: isEditing ? editingTransaction.id : crypto.randomUUID(),
+      id: isEditing ? editingTransaction!.id : crypto.randomUUID(),
       date: values.date.toISOString(),
       accountName: values.accountId,
     };
@@ -229,7 +236,7 @@ export default function Home() {
                 )}
             </div>
             <AlertDescription>
-             {isOnline ? "All changes will be synced with the cloud." : "Your changes are being saved locally and will sync when you're back online."}
+             {isOnline ? "All changes are synced with the cloud." : "Your changes are being saved locally and will sync when you're back online."}
             </AlertDescription>
         </Alert>
 

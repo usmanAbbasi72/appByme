@@ -14,8 +14,19 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   
   try {
     const updatedTransaction: Transaction = await request.json();
-    const currentData = await store.get(blobKey, { type: 'json' }) || [];
-    const transactions: Transaction[] = Array.isArray(currentData) ? currentData : [];
+    
+    let transactions: Transaction[] = [];
+    try {
+        const currentData = await store.get(blobKey, { type: 'json' });
+        if(Array.isArray(currentData)) {
+            transactions = currentData;
+        }
+    } catch(error) {
+        if (error instanceof Error && (error.name === 'BlobNotFoundError' || error.message.includes('Not Found'))) {
+             return NextResponse.json({ message: 'Transaction database not found' }, { status: 404 });
+        }
+        throw error;
+    }
 
     const transactionIndex = transactions.findIndex(t => t.id === params.id);
 
@@ -39,8 +50,18 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   const blobKey = `transactions_${userId}`;
 
   try {
-    const currentData = await store.get(blobKey, { type: 'json' }) || [];
-    const transactions: Transaction[] = Array.isArray(currentData) ? currentData : [];
+    let transactions: Transaction[] = [];
+     try {
+        const currentData = await store.get(blobKey, { type: 'json' });
+        if(Array.isArray(currentData)) {
+            transactions = currentData;
+        }
+    } catch(error) {
+        if (error instanceof Error && (error.name === 'BlobNotFoundError' || error.message.includes('Not Found'))) {
+             return NextResponse.json({ message: 'Transaction not found' }, { status: 404 });
+        }
+        throw error;
+    }
 
     const updatedTransactions = transactions.filter(t => t.id !== params.id);
 
