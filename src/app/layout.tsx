@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Finance Tracker",
-  description: "Your personal finance tracker.",
+  title: "Osman's Personal Assistant",
+  description: "Your personal assistant.",
   manifest: "/manifest.json",
 };
 

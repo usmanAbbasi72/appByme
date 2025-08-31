@@ -1,11 +1,11 @@
 {
-  "name": "Osman's Personal App",
-  "short_name": "Finance App",
-  "description": "Your personal finance tracker.",
-  "start_url": "/",
+  "name": "Osman's Personal Assistant",
+  "short_name": "Osman's Assistant",
+  "start_url": ".",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#000000",
+  "background_color": "#fff",
+  "description": "Your personal assistant.",
+  "theme_color": "#2196f3",
   "icons": [
     {
       "src": "/icon-192x192.png",
