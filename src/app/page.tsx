@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -23,9 +24,10 @@ export default function Home() {
   const [transactions, setTransactions] = useLocalStorage<Transaction[]>('transactions', []);
   const [accounts, setAccounts] = useLocalStorage<Account[]>('accounts', []);
   const [syncQueue, setSyncQueue] = useLocalStorage<SyncOperation[]>('syncQueue', []);
-
-  const [isLoading, setIsLoading] = useState(true); // Manages loading state for remote fetches
-  const [isOnline, setIsOnline] = useState(false); // Assume offline until verified
+  
+  // isLoading is for background server fetches, not initial render.
+  const [isLoading, setIsLoading] = useState(false); 
+  const [isOnline, setIsOnline] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
   const [isTransactionFormOpen, setIsTransactionFormOpen] = useState(false);
@@ -35,6 +37,7 @@ export default function Home() {
   const isSyncingRef = useRef(isSyncing);
   isSyncingRef.current = isSyncing;
 
+  // The sync process remains the same, but it's triggered more reliably.
   const processSyncQueue = useCallback(async () => {
     if (!isOnline || isSyncingRef.current || syncQueue.length === 0) {
       return;
@@ -44,7 +47,8 @@ export default function Home() {
     toast({ title: 'Syncing started...', description: `Processing ${syncQueue.length} offline changes.` });
 
     const queue = [...syncQueue];
-    const failedOperations: SyncOperation[] = [];
+    let successfullySyncedOps: SyncOperation[] = [];
+    let failedOperations: SyncOperation[] = [];
 
     for (const op of queue) {
       try {
@@ -66,7 +70,9 @@ export default function Home() {
             method: 'DELETE',
           });
         }
-        if (!response || !response.ok) {
+        if (response && response.ok) {
+           successfullySyncedOps.push(op);
+        } else {
           throw new Error(`Failed to sync ${op.type} operation for ID ${'id' in op.payload ? op.payload.id : 'N/A'}`);
         }
       } catch (error) {
@@ -75,57 +81,51 @@ export default function Home() {
       }
     }
     
-    // After attempting to sync, fetch the single source of truth from the server
+    // After attempting to sync, fetch the single source of truth from the server to resolve any conflicts.
     try {
       setIsLoading(true);
       const response = await fetch('/api/transactions');
       if (!response.ok) throw new Error('Failed to fetch from remote after sync');
       const remoteTransactions: Transaction[] = await response.json();
-
-      const stillRelevantFailedOps = failedOperations.filter(op => {
-         if (op.type === 'add' || op.type === 'update') {
-            return !remoteTransactions.some(t => t.id === op.payload.id);
-         }
-         if (op.type === 'delete') {
-            return remoteTransactions.some(t => t.id === op.payload.id);
-         }
-         return false;
-      });
-
+      
+      // The new source of truth is the remote data.
       setTransactions(remoteTransactions);
-      setSyncQueue(stillRelevantFailedOps);
 
-      if (stillRelevantFailedOps.length > 0) {
-        toast({ title: 'Sync Partially Failed', description: `${stillRelevantFailedOps.length} changes could not be synced and were kept for retry.`, variant: 'destructive' });
+      // The new sync queue only contains operations that failed.
+      setSyncQueue(failedOperations);
+
+      if (failedOperations.length > 0) {
+        toast({ title: 'Sync Partially Failed', description: `${failedOperations.length} changes could not be synced.`, variant: 'destructive' });
       } else {
-        toast({ title: 'Sync Complete!', description: 'All offline changes have been saved to the cloud.' });
+        toast({ title: 'Sync Complete!', description: 'All changes have been saved to the cloud.' });
       }
 
     } catch (error) {
-      console.error("Critical error: Could not fetch from remote after sync.", error);
-      toast({ title: 'Sync Error', description: `Could not verify sync status with the server. Retaining failed operations.`, variant: 'destructive'});
-      setSyncQueue(failedOperations);
+       console.error("Critical error: Could not fetch from remote after sync.", error);
+       toast({ title: 'Sync Error', description: `Could not verify sync status with the server. Retaining failed operations for next time.`, variant: 'destructive'});
+       
+       // If we fail to fetch, we can't be sure of the state. We put back all but the successful ops.
+       const remainingOps = syncQueue.filter(op => !successfullySyncedOps.includes(op));
+       setSyncQueue(remainingOps);
     } finally {
       setIsSyncing(false);
       setIsLoading(false);
     }
   }, [isOnline, syncQueue, setSyncQueue, toast, setTransactions]);
 
+  // This effect handles network status changes and initial data load.
   useEffect(() => {
-    // Data from localStorage is already loaded, so we are never in a true "initial loading" state.
-    setIsLoading(false);
-
+    // Set initial online status from navigator
     const updateOnlineStatus = () => {
       setIsOnline(navigator.onLine);
     };
+    
+    updateOnlineStatus();
 
     window.addEventListener('online', updateOnlineStatus);
     window.addEventListener('offline', updateOnlineStatus);
-    
-    // Set initial status
-    updateOnlineStatus();
 
-    // Fetch from server on initial load IF online
+    // Initial fetch from server IF online. This happens in the background.
     const initialFetch = async () => {
       if (navigator.onLine) {
         setIsLoading(true); // Indicate background loading
@@ -133,11 +133,11 @@ export default function Home() {
           const response = await fetch('/api/transactions');
           if (!response.ok) throw new Error('Failed to fetch initial data');
           const serverTransactions: Transaction[] = await response.json();
-          // This simple overwrite is safe because processSyncQueue runs right after,
-          // which will re-evaluate based on the server state.
-          setTransactions(serverTransactions); 
+          // We overwrite local data with server data, as server is source of truth.
+          // Any pending local changes will be handled by the sync queue.
+          setTransactions(serverTransactions);
         } catch (error) {
-          console.warn("Could not fetch from remote, using local data.", error);
+          console.warn("Could not fetch from remote on initial load, using local data.", error);
         } finally {
           setIsLoading(false); // Done with background loading
         }
@@ -150,15 +150,16 @@ export default function Home() {
       window.removeEventListener('online', updateOnlineStatus);
       window.removeEventListener('offline', updateOnlineStatus);
     };
-  }, [setTransactions]);
+  // We only want this to run once on mount. `setTransactions` is stable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); 
 
+  // This effect is dedicated to triggering the sync process.
   useEffect(() => {
-    // This effect now correctly triggers a sync only when online status changes to true,
-    // or on initial load if already online.
-    if (isOnline) {
+    if (isOnline && syncQueue.length > 0) {
       processSyncQueue();
     }
-  }, [isOnline, processSyncQueue]);
+  }, [isOnline, syncQueue.length, processSyncQueue]);
 
 
   const handleAddTransaction = () => {
@@ -207,11 +208,6 @@ export default function Home() {
     });
     
     handleTransactionFormClose();
-    
-    // Trigger a sync immediately if online
-    if(isOnline) {
-      processSyncQueue();
-    }
   }
 
   const handleDeleteTransaction = (transactionId: string) => {
@@ -229,11 +225,6 @@ export default function Home() {
         title: 'Transaction Deleted Locally',
         description: 'The transaction will be permanently deleted when online.',
       });
-      
-      // Trigger a sync immediately if online
-      if(isOnline) {
-        processSyncQueue();
-      }
   }
 
   const { totalIncome, totalExpenses, balance } = useMemo(() => {
@@ -279,7 +270,7 @@ export default function Home() {
                 )}
             </div>
             <AlertDescription>
-             {isOnline ? (isSyncing ? "Saving changes to the cloud..." : "All changes are synced with the cloud.") : "Your changes are being saved locally and will sync when you're back online."}
+             {isOnline ? (isSyncing ? "Saving changes to the cloud..." : (syncQueue.length === 0 ? "All changes are saved to the cloud." : "Ready to sync changes.")) : "Your changes are saved locally and will sync when you're back online."}
             </AlertDescription>
         </Alert>
 
@@ -314,7 +305,9 @@ export default function Home() {
         </div>
         <div className="grid gap-4 md:gap-8 lg:grid-cols-1">
           <div className="xl:col-span-2">
-            {isLoading && isOnline ? (
+            {/* Never show a full-page skeleton on initial load again. Data comes from localStorage instantly. 
+                Only show skeleton if we are in the process of a background fetch. */}
+            {isLoading && transactions.length === 0 ? (
                <Card>
                   <CardHeader>
                     <CardTitle>Recent Transactions</CardTitle>
@@ -346,3 +339,5 @@ export default function Home() {
     </>
   );
 }
+
+    
