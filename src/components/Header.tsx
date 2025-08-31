@@ -1,18 +1,16 @@
 import React from 'react';
 import { DollarSign, Settings, PlusCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { TransactionForm } from '@/components/TransactionForm';
 import { ManageAccountsDialog } from '@/components/ManageAccountsDialog';
 import type { Account } from '@/lib/types';
 
 interface HeaderProps {
   accounts: Account[];
   setAccounts: React.Dispatch<React.SetStateAction<Account[]>>;
-  onTransactionAdded: () => void;
+  onAddTransaction: () => void;
 }
 
-export function Header({ accounts, setAccounts, onTransactionAdded }: HeaderProps) {
-  const [isTransactionSheetOpen, setTransactionSheetOpen] = React.useState(false);
+export function Header({ accounts, setAccounts, onAddTransaction }: HeaderProps) {
   const [isAccountsDialogOpen, setAccountsDialogOpen] = React.useState(false);
 
   return (
@@ -27,18 +25,12 @@ export function Header({ accounts, setAccounts, onTransactionAdded }: HeaderProp
             <Settings className="h-4 w-4" />
             <span className="sr-only">Manage Accounts</span>
           </Button>
-          <Button size="sm" className="gap-1" onClick={() => setTransactionSheetOpen(true)}>
+          <Button size="sm" className="gap-1" onClick={onAddTransaction}>
             <PlusCircle className="h-4 w-4" />
             Add Transaction
           </Button>
         </div>
       </header>
-      <TransactionForm
-        isOpen={isTransactionSheetOpen}
-        setIsOpen={setTransactionSheetOpen}
-        accounts={accounts}
-        onTransactionAdded={onTransactionAdded}
-      />
       <ManageAccountsDialog
         isOpen={isAccountsDialogOpen}
         setIsOpen={setAccountsDialogOpen}

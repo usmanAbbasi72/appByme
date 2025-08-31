@@ -19,6 +19,10 @@ const transactionSchema = z.object({
   accountId: z.string().optional(),
 });
 
+const transactionUpdateSchema = transactionSchema.extend({
+  id: z.string(),
+});
+
 export async function addTransaction(data: unknown) {
   const parsedData = transactionSchema.safeParse(data);
   if (!parsedData.success) {
@@ -37,15 +41,8 @@ export async function addTransaction(data: unknown) {
   };
 
   try {
-    // Ensure file exists
-    await fs.access(FILE_PATH).catch(async () => {
-      await fs.writeFile(FILE_PATH, '[]', 'utf-8');
-    });
-
-    const fileContent = await fs.readFile(FILE_PATH, 'utf-8');
-    const transactions: Transaction[] = JSON.parse(fileContent);
+    const transactions = await getTransactionsFromFile();
     transactions.push(newTransaction);
-    
     await fs.writeFile(FILE_PATH, JSON.stringify(transactions, null, 2), 'utf-8');
     revalidatePath('/');
     return { success: true };
@@ -55,17 +52,79 @@ export async function addTransaction(data: unknown) {
   }
 }
 
+export async function updateTransaction(data: unknown) {
+  const parsedData = transactionUpdateSchema.safeParse(data);
+  if (!parsedData.success) {
+    throw new Error('Invalid transaction data.');
+  }
+  
+  const { id, ...updatedValues } = parsedData.data;
+
+  try {
+    const transactions = await getTransactionsFromFile();
+    const transactionIndex = transactions.findIndex(t => t.id === id);
+
+    if (transactionIndex === -1) {
+      throw new Error('Transaction not found.');
+    }
+
+    transactions[transactionIndex] = {
+      ...transactions[transactionIndex],
+      ...updatedValues,
+      date: updatedValues.date.toISOString(),
+      accountName: updatedValues.accountId
+    };
+
+    await fs.writeFile(FILE_PATH, JSON.stringify(transactions, null, 2), 'utf-8');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to update transaction:', error);
+    throw new Error('Failed to update transaction.');
+  }
+}
+
+export async function deleteTransaction(transactionId: string) {
+    if (!transactionId) {
+        throw new Error('Transaction ID is required.');
+    }
+
+    try {
+        let transactions = await getTransactionsFromFile();
+        transactions = transactions.filter(t => t.id !== transactionId);
+
+        await fs.writeFile(FILE_PATH, JSON.stringify(transactions, null, 2), 'utf-8');
+        revalidatePath('/');
+        return { success: true };
+    } catch (error) {
+        console.error('Failed to delete transaction:', error);
+        throw new Error('Failed to delete transaction.');
+    }
+}
+
+
+async function getTransactionsFromFile(): Promise<Transaction[]> {
+    try {
+        await fs.access(FILE_PATH);
+        const fileContent = await fs.readFile(FILE_PATH, 'utf-8');
+        return JSON.parse(fileContent);
+    } catch (error) {
+         if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+            await fs.writeFile(FILE_PATH, '[]', 'utf-8');
+            return [];
+         }
+         console.error('Failed to read transactions file:', error);
+         throw new Error('Could not read transactions.');
+    }
+}
+
+
 export async function getTransactions(): Promise<Transaction[]> {
   try {
-    const fileContent = await fs.readFile(FILE_PATH, 'utf-8');
-    const transactions: Transaction[] = JSON.parse(fileContent);
+    const transactions = await getTransactionsFromFile();
     // Sort transactions by date, most recent first
     return transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   } catch (error) {
-    // If the file doesn't exist or is empty/invalid JSON, return an empty array
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return [];
-    }
     console.error('Failed to get transactions:', error);
     return [];
   }

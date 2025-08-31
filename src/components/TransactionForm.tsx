@@ -1,13 +1,13 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { addTransaction } from '@/lib/actions';
+import { addTransaction, updateTransaction } from '@/lib/actions';
 import { TRANSACTION_CATEGORIES } from '@/lib/constants';
-import type { Account } from '@/lib/types';
+import type { Account, Transaction } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 
 import {
@@ -27,6 +27,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const transactionSchema = z.object({
+  id: z.string().optional(),
   type: z.enum(['income', 'expense']),
   amount: z.coerce.number().positive({ message: 'Please enter a positive amount.' }),
   date: z.date(),
@@ -39,12 +40,14 @@ interface TransactionFormProps {
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
   accounts: Account[];
-  onTransactionAdded: () => void;
+  onTransactionDone: () => void;
+  transactionToEdit?: Transaction | null;
 }
 
-export function TransactionForm({ isOpen, setIsOpen, accounts, onTransactionAdded }: TransactionFormProps) {
+export function TransactionForm({ isOpen, setIsOpen, accounts, onTransactionDone, transactionToEdit }: TransactionFormProps) {
   const [isLoading, setIsLoading] = React.useState(false);
   const { toast } = useToast();
+  const isEditing = !!transactionToEdit;
 
   const form = useForm<z.infer<typeof transactionSchema>>({
     resolver: zodResolver(transactionSchema),
@@ -56,23 +59,51 @@ export function TransactionForm({ isOpen, setIsOpen, accounts, onTransactionAdde
     },
   });
   
+  useEffect(() => {
+    if (isEditing && transactionToEdit) {
+      form.reset({
+        ...transactionToEdit,
+        date: new Date(transactionToEdit.date),
+        amount: Math.abs(transactionToEdit.amount),
+        accountId: transactionToEdit.accountName,
+      });
+    } else {
+      form.reset({
+        type: 'expense',
+        amount: 0,
+        date: new Date(),
+        reason: '',
+        category: '',
+        accountId: '',
+      });
+    }
+  }, [transactionToEdit, isEditing, form, isOpen]);
+
+
   const type = form.watch('type');
 
   const onSubmit = async (values: z.infer<typeof transactionSchema>) => {
     setIsLoading(true);
     try {
-      await addTransaction(values);
-      toast({
-        title: 'Transaction Added',
-        description: 'Your transaction has been successfully recorded.',
-      });
-      onTransactionAdded();
+      if (isEditing) {
+        await updateTransaction({ ...values, id: transactionToEdit.id });
+        toast({
+          title: 'Transaction Updated',
+          description: 'Your transaction has been successfully updated.',
+        });
+      } else {
+        await addTransaction(values);
+        toast({
+          title: 'Transaction Added',
+          description: 'Your transaction has been successfully recorded.',
+        });
+      }
+      onTransactionDone();
       setIsOpen(false);
-      form.reset();
     } catch (error) {
       toast({
         title: 'Error',
-        description: 'Failed to add transaction. Please try again.',
+        description: `Failed to ${isEditing ? 'update' : 'add'} transaction. Please try again.`,
         variant: 'destructive',
       });
     } finally {
@@ -84,8 +115,11 @@ export function TransactionForm({ isOpen, setIsOpen, accounts, onTransactionAdde
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
       <SheetContent className="overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>Add Transaction</SheetTitle>
-          <SheetDescription>Record a new income or expense. Click save when you&apos;re done.</SheetDescription>
+          <SheetTitle>{isEditing ? 'Edit' : 'Add'} Transaction</SheetTitle>
+          <SheetDescription>
+            {isEditing ? 'Update the details of your transaction.' : 'Record a new income or expense.'}
+             Click save when you&apos;re done.
+          </SheetDescription>
         </SheetHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 py-6">
@@ -98,7 +132,7 @@ export function TransactionForm({ isOpen, setIsOpen, accounts, onTransactionAdde
                   <FormControl>
                     <RadioGroup
                       onValueChange={field.onChange}
-                      defaultValue={field.value}
+                      value={field.value}
                       className="flex space-x-4"
                     >
                       <FormItem className="flex items-center space-x-2 space-y-0">
@@ -154,7 +188,7 @@ export function TransactionForm({ isOpen, setIsOpen, accounts, onTransactionAdde
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Category</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a category" />
@@ -180,7 +214,7 @@ export function TransactionForm({ isOpen, setIsOpen, accounts, onTransactionAdde
                  render={({ field }) => (
                    <FormItem>
                      <FormLabel>Account</FormLabel>
-                     <Select onValueChange={field.onChange} defaultValue={field.value}>
+                     <Select onValueChange={field.onChange} value={field.value}>
                        <FormControl>
                          <SelectTrigger>
                            <SelectValue placeholder="Select an account" />

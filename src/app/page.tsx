@@ -13,12 +13,15 @@ import { Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { TransactionForm } from '@/components/TransactionForm';
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useLocalStorage<Account[]>('accounts', []);
   const [loading, setLoading] = useState(true);
   const [showNotification, setShowNotification] = useState(false);
+  const [isTransactionFormOpen, setIsTransactionFormOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
   const refreshTransactions = async () => {
     setLoading(true);
@@ -42,6 +45,21 @@ export default function Home() {
     localStorage.setItem('notificationDismissed', today);
   };
 
+  const handleAddTransaction = () => {
+    setEditingTransaction(null);
+    setIsTransactionFormOpen(true);
+  }
+
+  const handleEditTransaction = (transaction: Transaction) => {
+    setEditingTransaction(transaction);
+    setIsTransactionFormOpen(true);
+  }
+
+  const handleTransactionFormClose = () => {
+    setIsTransactionFormOpen(false);
+    setEditingTransaction(null);
+  }
+
   const { totalIncome, totalExpenses, balance } = useMemo(() => {
     const income = transactions
       .filter((t) => t.type === 'income')
@@ -64,11 +82,12 @@ export default function Home() {
   };
 
   return (
+    <>
     <div className="flex min-h-screen w-full flex-col">
       <Header
         accounts={accounts}
         setAccounts={setAccounts}
-        onTransactionAdded={refreshTransactions}
+        onAddTransaction={handleAddTransaction}
       />
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
         {showNotification && (
@@ -131,7 +150,11 @@ export default function Home() {
                   </CardContent>
                 </Card>
             ) : (
-              <TransactionList transactions={transactions} />
+              <TransactionList 
+                transactions={transactions}
+                onEdit={handleEditTransaction}
+                onDelete={refreshTransactions}
+              />
             )}
           </div>
           <div>
@@ -140,5 +163,13 @@ export default function Home() {
         </div>
       </main>
     </div>
+     <TransactionForm
+        isOpen={isTransactionFormOpen}
+        setIsOpen={handleTransactionFormClose}
+        accounts={accounts}
+        onTransactionDone={refreshTransactions}
+        transactionToEdit={editingTransaction}
+      />
+    </>
   );
 }

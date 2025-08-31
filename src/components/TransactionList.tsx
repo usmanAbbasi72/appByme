@@ -1,22 +1,37 @@
+import { useState } from 'react';
 import type { Transaction } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { CircleDollarSign, MinusCircle } from 'lucide-react';
+import { CircleDollarSign, MinusCircle, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { format } from 'date-fns';
+import { Button } from './ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
+import { DeleteTransactionDialog } from './DeleteTransactionDialog';
 
 interface TransactionListProps {
   transactions: Transaction[];
+  onEdit: (transaction: Transaction) => void;
+  onDelete: () => void;
 }
 
-export function TransactionList({ transactions }: TransactionListProps) {
+export function TransactionList({ transactions, onEdit, onDelete }: TransactionListProps) {
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('en-US', {
           style: 'currency',
           currency: 'USD',
         }).format(amount);
-      };
+    };
+
+    const handleDeleteClick = (transaction: Transaction) => {
+        setSelectedTransaction(transaction);
+        setIsDeleteDialogOpen(true);
+    }
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle>Recent Transactions</CardTitle>
@@ -25,8 +40,8 @@ export function TransactionList({ transactions }: TransactionListProps) {
       <CardContent>
         {transactions.length > 0 ? (
           <div className="space-y-4">
-            {transactions.slice(0, 10).map((transaction, index) => (
-              <div key={index} className="flex items-center gap-4 p-2 rounded-lg hover:bg-muted/50">
+            {transactions.slice(0, 10).map((transaction) => (
+              <div key={transaction.id} className="flex items-center gap-4 p-2 rounded-lg hover:bg-muted/50">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
                   {transaction.type === 'income' ? (
                     <CircleDollarSign className="h-5 w-5 text-green-500" />
@@ -52,6 +67,24 @@ export function TransactionList({ transactions }: TransactionListProps) {
                     </p>
                     <Badge variant="outline" className="mt-1">{transaction.category}</Badge>
                 </div>
+                 <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="h-8 w-8 p-0">
+                      <span className="sr-only">Open menu</span>
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => onEdit(transaction)}>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleDeleteClick(transaction)} className="text-destructive focus:text-destructive">
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             ))}
           </div>
@@ -63,5 +96,12 @@ export function TransactionList({ transactions }: TransactionListProps) {
         )}
       </CardContent>
     </Card>
+     <DeleteTransactionDialog
+        isOpen={isDeleteDialogOpen}
+        setIsOpen={setIsDeleteDialogOpen}
+        transaction={selectedTransaction}
+        onSuccess={onDelete}
+      />
+    </>
   );
 }
