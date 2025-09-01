@@ -2,15 +2,16 @@
   "name": "Osman's Personal Assistant",
   "short_name": "Osman's PA",
   "description": "Your personal assistant for managing finances.",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#2563eb",
   "icons": [
     {
       "src": "/icon.svg",
-      "sizes": "any",
+      "sizes": "512x512",
       "type": "image/svg+xml"
     }
-  ]
+  ],
+  "theme_color": "#2563EB",
+  "background_color": "#ffffff",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait"
 }
