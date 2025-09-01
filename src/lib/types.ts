@@ -13,6 +13,14 @@ export interface Account {
   name: string;
 }
 
+export interface Payment {
+  id: string;
+  amount: number;
+  date: string;
+  reason?: string;
+}
+
+
 export interface Debt {
   id: string;
   personName: string;
@@ -20,7 +28,11 @@ export interface Debt {
   reason: string;
   date: string;
   type: 'debt' | 'debtor'; // 'debt' is money I owe, 'debtor' is money owed to me
+  payments: Payment[];
+  paidAmount: number;
+  status: 'paid' | 'unpaid';
 }
+
 
 export interface ManifestIcon {
   src: string;

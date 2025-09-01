@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import type { Account, Debt } from '@/lib/types';
+import type { Account, Debt, Payment } from '@/lib/types';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { useRouter } from 'next/navigation';
 import { Header } from '@/components/Header';
@@ -13,11 +13,13 @@ import { Wifi, WifiOff, BookUser, Wallet } from 'lucide-react';
 import { DebtList } from '@/components/DebtList';
 import { DebtForm } from '@/components/DebtForm';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { RecordPaymentForm } from '@/components/RecordPaymentForm';
 
 type SyncOperation =
   | { type: 'add'; payload: Debt }
   | { type: 'update'; payload: Debt }
-  | { type: 'delete'; payload: { id: string } };
+  | { type: 'delete'; payload: { id: string } }
+  | { type: 'add_payment'; payload: { debtId: string; payment: Omit<Payment, 'id'> } };
 
 export default function DebtsPage() {
   const router = useRouter();
@@ -33,6 +35,8 @@ export default function DebtsPage() {
 
   const [isDebtFormOpen, setIsDebtFormOpen] = useState(false);
   const [editingDebt, setEditingDebt] = useState<Debt | null>(null);
+  const [isPaymentFormOpen, setIsPaymentFormOpen] = useState(false);
+  const [payingDebt, setPayingDebt] = useState<Debt | null>(null);
   const { toast } = useToast();
 
   const isSyncingRef = useRef(isSyncing);
@@ -86,11 +90,19 @@ export default function DebtsPage() {
           response = await fetch(`/api/debts/${op.payload.id}`, {
             method: 'DELETE',
           });
+        } else if (op.type === 'add_payment') {
+            response = await fetch(`/api/debts/${op.payload.debtId}/payments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(op.payload.payment),
+            });
         }
+
         if (response && response.ok) {
            successfullySyncedOps.push(op);
         } else {
-           throw new Error(`Failed to sync ${op.type} operation for ID ${'id' in op.payload ? op.payload.id : 'N/A'}`);
+           const opId = 'id' in op.payload ? op.payload.id : ('debtId' in op.payload ? op.payload.debtId : 'N/A');
+           throw new Error(`Failed to sync ${op.type} operation for ID ${opId}`);
         }
       } catch (error) {
         console.error('Sync error:', error);
@@ -175,11 +187,23 @@ export default function DebtsPage() {
     setEditingDebt(debt);
     setIsDebtFormOpen(true);
   }
+  
+  const handleRecordPayment = (debt: Debt) => {
+    setPayingDebt(debt);
+    setIsPaymentFormOpen(true);
+  };
+
 
   const handleDebtFormClose = () => {
     setIsDebtFormOpen(false);
     setEditingDebt(null);
   }
+
+  const handlePaymentFormClose = () => {
+    setIsPaymentFormOpen(false);
+    setPayingDebt(null);
+  }
+
 
   const handleDebtFormDone = (values: any) => {
     const isEditing = !!editingDebt;
@@ -188,6 +212,9 @@ export default function DebtsPage() {
       ...values,
       id: isEditing ? editingDebt!.id : crypto.randomUUID(),
       date: new Date().toISOString(),
+      payments: isEditing ? editingDebt!.payments : [],
+      paidAmount: isEditing ? editingDebt!.paidAmount : 0,
+      status: isEditing ? editingDebt!.status : 'unpaid',
     };
 
     if (isEditing) {
@@ -235,12 +262,44 @@ export default function DebtsPage() {
           processSyncQueue();
       }
   }
+  
+  const handlePaymentFormDone = (payment: Omit<Payment, 'id'>) => {
+    if (!payingDebt) return;
+    
+    setDebts(prevDebts => prevDebts.map(d => {
+        if (d.id === payingDebt.id) {
+            const newPayment = { ...payment, id: crypto.randomUUID() };
+            const updatedPayments = [...(d.payments || []), newPayment];
+            const newPaidAmount = updatedPayments.reduce((sum, p) => sum + p.amount, 0);
+            return {
+                ...d,
+                payments: updatedPayments,
+                paidAmount: newPaidAmount,
+                status: newPaidAmount >= d.amount ? 'paid' : 'unpaid'
+            };
+        }
+        return d;
+    }));
+
+    setSyncQueue(prev => [...prev, { type: 'add_payment', payload: { debtId: payingDebt.id, payment } }]);
+
+    toast({
+        title: 'Payment Recorded Locally',
+        description: 'The payment is saved and will sync when online.',
+    });
+    
+    handlePaymentFormClose();
+    if (isOnline) {
+        processSyncQueue();
+    }
+};
+
 
   const { debtors, personalDebts, totalOwedToUser, totalOwedByUser } = useMemo(() => {
     const debtors = debts.filter(d => d.type === 'debtor');
     const personalDebts = debts.filter(d => d.type === 'debt');
-    const totalOwedToUser = debtors.reduce((sum, d) => sum + d.amount, 0);
-    const totalOwedByUser = personalDebts.reduce((sum, d) => sum + d.amount, 0);
+    const totalOwedToUser = debtors.reduce((sum, d) => sum + d.amount - (d.paidAmount || 0), 0);
+    const totalOwedByUser = personalDebts.reduce((sum, d) => sum + d.amount - (d.paidAmount || 0), 0);
 
     return { debtors, personalDebts, totalOwedToUser, totalOwedByUser };
   }, [debts]);
@@ -317,6 +376,7 @@ export default function DebtsPage() {
             onEdit={handleEditDebt}
             onDelete={handleDeleteDebt}
             onAdd={handleAddDebt}
+            onRecordPayment={handleRecordPayment}
          />
       
       </main>
@@ -327,8 +387,13 @@ export default function DebtsPage() {
         onSubmit={handleDebtFormDone}
         debtToEdit={editingDebt}
       />
+      <RecordPaymentForm
+        isOpen={isPaymentFormOpen}
+        onClose={handlePaymentFormClose}
+        onSubmit={handlePaymentFormDone}
+        debt={payingDebt}
+      />
     </>
   );
 }
 
-    
