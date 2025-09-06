@@ -115,5 +115,3 @@ export function TransactionList({ transactions, onEdit, onDelete }: TransactionL
     </>
   );
 }
-
-    
